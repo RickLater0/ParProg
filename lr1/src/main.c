@@ -37,50 +37,28 @@ static lab_err_t test(
     uint64_t **M
 );
 static void handler(int sig);
+static uint8_t is_diff(
+    const uint64_t *M1, 
+    const uint64_t *M2,
+    const size_t k
+);
 
 int main(int argc, char *argv[])
 {
     uint64_t N = 2;
     size_t k = 0;
-    uint8_t is_seq = 0;
-    uint8_t is_par = 1;
     size_t arg_ind = 1;
-    uint64_t *M = NULL;
-   
+    uint64_t *M1 = NULL;
+    uint64_t *M2 = NULL;
 
-    if(argc != 3 && argc != 4)
+    if(argc != 3)
     {
         printf("Usage: %s [-p|-s] <N> <k> \n\
             N - top edge\n\
-            k - number of prime numbers in sum\n\
-            Flags, may be both:\n\
-            -p - parallel\n\
-            -s - sequential\n",
+            k - number of prime numbers in sum\n",
             argv[0]
         );
         return -1;
-    }
-
-    if(argv[arg_ind][0] == '-')
-    {
-        for(size_t j = 1; argv[arg_ind][j] != '\0'; j++)
-        {
-            if(argv[arg_ind][j] == 's')
-            {
-                is_par = 0;
-                is_seq = 1;
-            }
-            else if(argv[arg_ind][j] == 'p')
-            {
-                is_par = 1;
-            }
-            else
-            {
-                printf("Unknown flag option: '%c'\n", argv[arg_ind][j]);
-                return -1;
-            }
-        }
-        arg_ind++;
     }
 
     if(arg_ind < (size_t)argc)
@@ -95,18 +73,17 @@ int main(int argc, char *argv[])
         arg_ind++;
     }
 
-    if(is_par)
-    {
-        printf("Running parallel...\n");
-        test(parallel, N, k, &M);
-    }
-    if(is_seq)
-    {
-        printf("Running sequence...\n");
-        test(sequence, N, k, &M);
-    }
 
-    free(M);
+    printf("Parallel:\n");
+    test(parallel, N, k, &M1);
+
+    printf("Sequence:\n");
+    test(sequence, N, k, &M2);
+
+    printf("Has diff: %s\n", is_diff(M1, M2, k) ? "true" : "false");
+
+    free(M1);
+    free(M2);
     return 0;
 }
 
@@ -119,7 +96,6 @@ static void print_output(
     uint64_t sum = 0;
     double elapsed_time = 0.0;
 
-    printf("Prime numbers which sum gives less than %lu:\n", N);
     for(size_t i = 0; i < k; i++)
     {
         printf("%lu", M[i]);
@@ -130,11 +106,11 @@ static void print_output(
         );
         sum += M[i];
     }
-    printf("%lu\n", sum);
+    printf("%lu < %lu\n", sum, N);
 
     elapsed_time = (double)(end.tv_sec - start.tv_sec) + 
                    (double)(end.tv_nsec - start.tv_nsec) * 1e-9;
-    printf("Execution time: %.6f secs\n", elapsed_time);
+    printf("Time: %.6f secs\n", elapsed_time);
 }
 
 static lab_err_t test(
@@ -148,12 +124,6 @@ static lab_err_t test(
 
     signal(SIGINT,  handler);
     signal(SIGTERM, handler);
-
-    if (*M != NULL)
-    {
-        free(*M);
-        *M = NULL;
-    }
 
     clock_gettime(CLOCK_MONOTONIC, &start);
     ret = test_func(N, k, M);
@@ -181,4 +151,33 @@ static void handler(int sig)
                    (double)(end.tv_nsec - start.tv_nsec) * 1e-9;
     printf("\nExecution time: %.6f secs. Interrupted\n", elapsed_time);
     exit(EXIT_FAILURE);
+}
+
+/**
+ * @brief Проверяет два массива одинаковой размерности на соответствие
+ * 
+ * @param M1 первый массив
+ * @param M2 второй массив
+ * @param k количество элементов
+ * @return uint8_t 1 - есть различия, иначе 0
+ */
+static uint8_t is_diff(
+    const uint64_t *M1, 
+    const uint64_t *M2,
+    const size_t k
+)
+{
+    uint8_t check = 0;
+
+    for(size_t i = 0; i < k; i++)
+    {
+        if(M1[i] == M2[i])
+        {
+            continue;
+        }
+        check = 1;
+        break;
+    }
+
+    return check;
 }
