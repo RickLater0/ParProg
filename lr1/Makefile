@@ -3,7 +3,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra
 LDFLAGS = -lOpenCL
 
-TARGET = program
+TARGET = lab.elf
 
 SRC_DIR := src
 SRC = $(SRC_DIR)/*.c
