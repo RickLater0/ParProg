@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -D_POSIX_C_SOURCE=200809L -O2
-LDFLAGS = -lOpenCL
+CFLAGS = -Wall -Wextra -std=c99 -D_POSIX_C_SOURCE=200809L -O2 -fopenmp
+LDFLAGS = -fopenmp
 
 TARGET = lab.elf
 
@@ -10,7 +10,7 @@ SRC = $(SRC_DIR)/*.c
 all: $(TARGET)
 
 $(TARGET): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -I/usr/local/cuda/include -L/usr/local/cuda/lib64 -o $(TARGET) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
 
 clean:
 	rm -f $(TARGET)
