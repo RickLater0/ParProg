@@ -72,6 +72,8 @@ lab_err_t parallel(
     u64 min_possible_sum = 0;
     u64 *best_comb = NULL;
     u64 current_target = N - 1;
+    u64 max_found_target = 0;
+    int found_flag = 0;
 
     if (!M)
     {
@@ -85,8 +87,8 @@ lab_err_t parallel(
 
     if (k > p_sz)
     {
-        free(primes);
-        return LARGE_K;
+        ret = LARGE_K;
+        goto end;
     }
 
     for (size_t i = 0; i < k; i++)
@@ -96,21 +98,17 @@ lab_err_t parallel(
 
     if (N <= min_possible_sum)
     {
-        free(primes);
-        return NO_SUM;
+        ret = NO_SUM;
+        goto end;
     }
 
     u64 total_candidates = (current_target >= min_possible_sum) ? (current_target - min_possible_sum + 1) : 0;
     if (total_candidates == 0)
     {
-        free(primes);
-        return NO_SUM;
+        ret = NO_SUM;
+        goto end;
     }
 
-    u64 max_found_target = 0;
-    int found_flag = 0;
-
-    // Идем блоками сверху вниз, чтобы гарантированно найти наибольшее число
     #pragma omp parallel
     {
         u64 *local_comb = malloc(k * sizeof(u64));
@@ -120,13 +118,8 @@ lab_err_t parallel(
         #pragma omp for schedule(dynamic, 32)
         for (u64 idx = 0; idx < total_candidates; idx++)
         {
-            // Если мы уже нашли решение выше текущего блока, пропускаем
-            if (found_flag)
-            {
-                continue;
-            }
-
             u64 target = current_target - idx;
+
             if (local_comb)
             {
                 if (check_single_target(primes, p_sz, k, 0, 0, target, local_comb, 0, local_comb))
@@ -165,10 +158,8 @@ lab_err_t parallel(
         free(local_comb);
     }
 
-    // Если нашли максимальный таргет, перепроверим и запишем точную комбинацию для него
     if (found_flag)
     {
-        // Пересберем комбинацию для max_found_target на всякий случай через sequential-подобный вызов
         u64 *exact_comb = malloc(k * sizeof(u64));
         if (exact_comb)
         {
@@ -184,19 +175,22 @@ lab_err_t parallel(
         }
     }
 
-    free(primes);
-
     if (!best_comb && ret == NO_ERR)
     {
-        return NO_SUM;
+        ret = NO_SUM;
+        goto end;
     }
 
     if (ret != NO_ERR)
     {
-        if (best_comb) free(best_comb);
-        return ret;
+        goto end;
     }
 
     *M = best_comb;
-    return NO_ERR;
+    best_comb = NULL;
+
+    end:
+        free(primes);
+        free(best_comb);
+        return ret;
 }

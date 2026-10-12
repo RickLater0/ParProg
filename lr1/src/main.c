@@ -15,15 +15,13 @@ OpenCL
 #include <string.h>
 #include <time.h>
 #include <signal.h>
+#include <unistd.h>
 
 typedef lab_err_t (* max_prime_sum) (
     const uint64_t N, 
     const size_t k, 
     uint64_t **M
 );
-
-static struct timespec start;
-static struct timespec end;
 
 static void print_output(
     const uint64_t N, 
@@ -43,17 +41,26 @@ static uint8_t is_diff(
     const size_t k
 );
 
+static struct timespec start;
+static struct timespec end;
+u8 use_color = 0;
+#define C_RESET   ((use_color ? "\033[0m" : ""))
+#define C_RED     ((use_color ? "\033[1;31m" : ""))
+#define C_GREEN   ((use_color ? "\033[1;32m" : ""))
+
 int main(int argc, char *argv[])
 {
+    use_color = isatty(STDOUT_FILENO);
     uint64_t N = 2;
     size_t k = 0;
     size_t arg_ind = 1;
+    u8 has_diff = 1;
     uint64_t *M1 = NULL;
     uint64_t *M2 = NULL;
 
     if(argc != 3)
     {
-        printf("Usage: %s [-p|-s] <N> <k> \n\
+        printf("Usage: %s <N> <k> \n\
             N - top edge\n\
             k - number of prime numbers in sum\n",
             argv[0]
@@ -80,7 +87,8 @@ int main(int argc, char *argv[])
     printf("Sequence:\n");
     test(sequence, N, k, &M2);
 
-    printf("Has diff: %s\n", is_diff(M1, M2, k) ? "true" : "false");
+    has_diff = is_diff(M1, M2, k);
+    printf("Has diff: %s%s%s\n", has_diff ? C_RED : C_GREEN, has_diff ? "true" : "false", C_RESET);
 
     free(M1);
     free(M2);
@@ -131,7 +139,7 @@ static lab_err_t test(
 
     if(ret != NO_ERR)
     {
-        printf("Error: %s\n", lab_err_string(ret));
+        printf("%sError: %s%s\n", C_RED, lab_err_string(ret), C_RESET);
         return ret;
     }
 
