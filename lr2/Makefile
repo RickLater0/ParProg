@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -D_POSIX_C_SOURCE=200809L -O2 
+CFLAGS = -Wall -Wextra -std=c99 -D_POSIX_C_SOURCE=200809L -DCL_TARGET_OPENCL_VERSION=120 -O2 
 LDFLAGS = -lOpenCL
 
 TARGET = lab.elf
@@ -14,5 +14,8 @@ $(TARGET): $(SRC)
 
 clean:
 	rm -f $(TARGET)
+
+test: $(TARGET)
+	./test.sh 70
 
 .PHONY: all clean

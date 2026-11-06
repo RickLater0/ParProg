@@ -43,6 +43,13 @@ lab_err_t graph_init(
 );
 void graph_free(graph_t *graph);
 
+int degree_equal(
+    const graph_t *g1,
+    const graph_t *g2
+);
+
+u32 count_ones(const graph_t *g);
+
 const char *lab_err_string(const lab_err_t lerr);
 
 #endif //COMMON_H__

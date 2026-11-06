@@ -11,16 +11,15 @@
 #include <errno.h>
 #include <string.h>
 
-#define HELP_MESSAGE "Usage: %s <n> <matrix1> <matrix2> \n\
+#define HELP_MESSAGE "Usage: %s <n> \"<matrix1>\" \"<matrix2>\" \n\
             where\n\
             n - matrix size\n\
-            matrix - array n*n elements with 0 (nolink) or 1 (linked)\n"
+            matrix - string containing n*n elements separated by spaces\n"
 
-static lab_err_t parse_matrix(
+static lab_err_t parse_single_matrix(
     u8 n,
-    char **str,
-    u8 ***matrix1,
-    u8 ***matrix2
+    const char *str_arg,
+    u8 ***matrix_out
 );
 
 static lab_err_t test(
@@ -62,12 +61,6 @@ static void print_time(
 
 static void handler(int sig);
 
-static struct timespec seq_start = {};
-static struct timespec seq_end   = {};
-
-static struct timespec par_start = {};
-static struct timespec par_end   = {};
-
 int main(int argc, char **argv)
 {
     u8 n = 0;
@@ -93,16 +86,24 @@ int main(int argc, char **argv)
         return 0;
     }
     n = (u8)strtoul(argv[1], NULL, 10);
-    if(argc != 2 * n * n + 2) //2 * n * n - две матрицы, 2 это сам n и argv[0]
+    if(argc != 4 || n == 0) //2 * n * n - две матрицы, 2 это сам n и argv[0]
     {
         printf(HELP_MESSAGE, argv[0]);
         return 0;
     }
 
-    if((ret = parse_matrix(
+    if((ret = parse_single_matrix(
         n,
-        argv + 2,
-        &matrix1,
+        argv[2],
+        &matrix1
+    )) != NO_ERR)
+    {
+        goto end;
+    }
+
+    if((ret = parse_single_matrix(
+        n,
+        argv[3],
         &matrix2
     )) != NO_ERR)
     {
@@ -131,7 +132,6 @@ int main(int argc, char **argv)
     signal(SIGTERM, handler);
 
     //testing sequential solution
-        clock_gettime(CLOCK_MONOTONIC, &seq_start);
     ret = test(
         s_solution,
         &graph1,
@@ -140,7 +140,6 @@ int main(int argc, char **argv)
         &seq_ret_graph2,
         &res_seq
     );
-    clock_gettime(CLOCK_MONOTONIC, &seq_end);
     if(ret != NO_ERR)
     {
         goto end;
@@ -155,7 +154,6 @@ int main(int argc, char **argv)
     );
 
     //testing parallel solution
-    clock_gettime(CLOCK_MONOTONIC, &par_start);
     ret = test(
         p_solution,
         &graph1,
@@ -164,7 +162,6 @@ int main(int argc, char **argv)
         &par_ret_graph2,
         &res_par
     );
-    clock_gettime(CLOCK_MONOTONIC, &par_end);
     if(ret != NO_ERR)
     {
         goto end;
@@ -176,6 +173,15 @@ int main(int argc, char **argv)
         res_par,
         &par_start,
         &par_end
+    );
+
+    print_diff(
+        &seq_ret_graph1,
+        &seq_ret_graph2,
+        &par_ret_graph1,
+        &par_ret_graph2,
+        res_seq,
+        res_par
     );
 
     end:
@@ -225,6 +231,90 @@ static int parse_u8_elem(const char *s, u8 *out)
     //0 -> 0, всё > 0 -> 1
     *out = (v > 0) ? 1 : 0;
     return 1;
+}
+
+static lab_err_t parse_single_matrix(
+    u8 n,
+    const char *str_arg,
+    u8 ***matrix_out
+)
+{
+    lab_err_t ret = NO_ERR;
+    u8 **m = NULL;
+    char *str_copy = NULL;
+    char *token = NULL;
+    u32 count = 0;
+    u8 val = 0;
+
+    if(!n || !str_arg || !matrix_out)
+    {
+        ret = ARG_ERR;
+        goto end;
+    }
+
+    *matrix_out = NULL;
+
+    str_copy = strdup(str_arg);
+    if(!str_copy)
+    {
+        ret = MEM_ERR;
+        goto end;
+    }
+
+    m = calloc(n, sizeof(u8*));
+    if(!m)
+    {
+        ret = MEM_ERR;
+        goto end;
+    }
+
+    for(u8 i = 0; i < n; i++)
+    {
+        m[i] = calloc(n, sizeof(u8));
+        if(!m[i])
+        {
+            ret = MEM_ERR;
+            goto end;
+        }
+    }
+
+    token = strtok(str_copy, " \t\n\r");
+    while(token != NULL)
+    {
+        if(count >= (u32)n * n)
+        {
+            ret = ARG_ERR;
+            goto end;
+        }
+
+        if(!parse_u8_elem(token, &val))
+        {
+            ret = ARG_ERR;
+            goto end;
+        }
+
+        m[count / n][count % n] = val;
+        count++;
+
+        token = strtok(NULL, " \t\n\r");
+    }
+
+    if(count != (u32)n * n)
+    {
+        ret = ARG_ERR;
+        goto end;
+    }
+
+    *matrix_out = m;
+    m = NULL;
+
+end:
+    free(str_copy);
+    if(m)
+    {
+        free_matrix(n, m);
+    }
+    return ret;
 }
 
 static void free_matrix(u8 n, u8 **m)
@@ -322,92 +412,6 @@ static void print_time(
     printf("%s time: %.6f s\n", label, elapsed);
 }
 
-static lab_err_t parse_matrix(
-    u8 n,
-    char **str,
-    u8 ***matrix1,
-    u8 ***matrix2
-)
-{
-    lab_err_t ret = NO_ERR;
-    u8 **m1 = NULL;
-    u8 **m2 = NULL;
-
-    if(!n || !str || !matrix1 || !matrix2)
-    {
-        ret = ARG_ERR;
-        goto end;
-    }
-
-    *matrix1 = NULL;
-    *matrix2 = NULL;
-
-    m1 = calloc(n, sizeof(u8*));
-    if(!m1)
-    {
-        ret = MEM_ERR;
-        goto end;
-    }
-
-    m2 = calloc(n, sizeof(u8*));
-    if(!m2)
-    {
-        ret = MEM_ERR;
-        goto end;
-    }
-
-    for(u8 i = 0; i < n; i++)
-    {
-        m1[i] = calloc(n, sizeof(u8));
-        if(!m1[i])
-        {
-            ret = MEM_ERR;
-            goto end;
-        }
-
-        m2[i] = calloc(n, sizeof(u8));
-        if(!m2[i])
-        {
-            ret = MEM_ERR;
-            goto end;
-        }
-    }
-
-    for(u8 i = 0; i < n; i++)
-    {
-        for(u8 j = 0; j < n; j++)
-        {
-            if(!parse_u8_elem(str[i * n + j], &m1[i][j]))
-            {
-                ret = ARG_ERR;
-                goto end;
-            }
-
-            if(!parse_u8_elem(str[n * n + i * n + j], &m2[i][j]))
-            {
-                ret = ARG_ERR;
-                goto end;
-            }
-        }
-    }
-
-    *matrix1 = m1;
-    *matrix2 = m2;
-    m1 = NULL;
-    m2 = NULL;
-
-    end:
-        if(m1)
-        {
-            free_matrix(n, m1);
-        }
-        if(m2)
-        {
-            free_matrix(n, m2);
-        }
-        return ret;
-}
-
 static lab_err_t test(
     solution sol,
     const graph_t *g1,
@@ -500,33 +504,27 @@ static void print_diff(
     {
         printf("  res: MISMATCH (seq=%u, par=%u)\n", res_seq, res_par);
     }
+
+    print_time("[seq]", &seq_start, &seq_end);
+    print_time("[par]", &par_start, &par_end);
 }
 
 static void handler(int sig)
 {
     struct timespec now = {};
+    clock_gettime(CLOCK_MONOTONIC, &now);
 
-    clock_gettime(CLOCK_MONOTONIC, &now);\
-
-    if(seq_start.tv_sec || seq_start.tv_nsec)
+    if (seq_start.tv_sec != 0 || seq_start.tv_nsec != 0)
     {
-        if(seq_end.tv_sec || seq_end.tv_nsec)
-        {
-            print_time("[seq]", &seq_start, &seq_end);
-        }
-        else
+        if (seq_end.tv_sec == 0 && seq_end.tv_nsec == 0)
         {
             print_time("[seq] (interrupted)", &seq_start, &now);
         }
     }
 
-    if(par_start.tv_sec || par_start.tv_nsec)
+    if (par_start.tv_sec != 0 || par_start.tv_nsec != 0)
     {
-        if(par_end.tv_sec || par_end.tv_nsec)
-        {
-            print_time("[par]", &par_start, &par_end);
-        }
-        else
+        if (par_end.tv_sec == 0 && par_end.tv_nsec == 0)
         {
             print_time("[par] (interrupted)", &par_start, &now);
         }
