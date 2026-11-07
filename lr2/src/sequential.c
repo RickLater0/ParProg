@@ -27,9 +27,6 @@ solution s_solution = sequential;
 struct timespec seq_start = {0};
 struct timespec seq_end = {0};
 
-
-//mapping[i] = j означает, что вершина i графа g1 соответствует вершине j графа g2
-//рекурсивно перебираем соответствия, отсекая несовместимые с уже выбранными
 static int iso_backtrack(
     const graph_t *g1,
     const graph_t *g2,
@@ -171,7 +168,6 @@ lab_err_t sequential(
     int found = 0;
     seq_end.tv_sec = 0;
     seq_end.tv_nsec = 0;
-    
 
     if(!g1 || !g2 || !ret_g1 || !ret_g2 || !res)
     {
@@ -186,7 +182,6 @@ lab_err_t sequential(
 
     clock_gettime(CLOCK_MONOTONIC, &seq_start);
 
-    //разные размеры - точно не изоморфны, но копии вернём для print_diff
     if(g1->n != g2->n)
     {
         if((ret = copy_graph(ret_g1, g1)) != NO_ERR)
@@ -208,7 +203,6 @@ lab_err_t sequential(
         goto end;
     }
 
-    //быстрый отсев: разное количество рёбер - не изоморфны
     if(count_ones(g1) != count_ones(g2))
     {
         if((ret = copy_graph(ret_g1, g1)) != NO_ERR)
@@ -222,7 +216,6 @@ lab_err_t sequential(
         goto end;
     }
 
-    //быстрый отсев: разные степени вершин - не изоморфны
     if(!degree_equal(g1, g2))
     {
         if((ret = copy_graph(ret_g1, g1)) != NO_ERR)
@@ -248,8 +241,6 @@ lab_err_t sequential(
 
     if(found)
     {
-        //ret_g1 = g1 как есть, ret_g2 = g2 с перенумерованными вершинами
-        //(при найденном изоморфизме ret_g2 поэлементно равен g1)
         *res = 1;
         if((ret = copy_graph(ret_g1, g1)) != NO_ERR)
         {
@@ -262,7 +253,6 @@ lab_err_t sequential(
     }
     else
     {
-        //не изоморфны - возвращаем копии как есть, для диагностики
         *res = 0;
         if((ret = copy_graph(ret_g1, g1)) != NO_ERR)
         {

@@ -23,7 +23,6 @@ solution p_solution = parallel_run;
 struct timespec par_start = {0};
 struct timespec par_end = {0};
 
-// Глобальные ресурсы OpenCL (инициализируются один раз вне замера времени)
 static int cl_initialized = 0;
 static cl_context context = NULL;
 static cl_command_queue queue = NULL;
@@ -31,7 +30,6 @@ static cl_program program = NULL;
 static cl_kernel kernel_compat = NULL;
 static cl_device_id device = NULL;
 
-// Обязательно определяем u8 внутри OpenCL C кода, так как заголовки туда не передаются
 static const char *ocl_source = 
 "#define u8 unsigned char\n"
 "__kernel void vertex_compatibility(\n"
@@ -188,12 +186,12 @@ static lab_err_t copy_graph_permuted(
         }
     }
 
-end:
-    if(ret != NO_ERR)
-    {
-        graph_free(dst);
-    }
-    return ret;
+    end:
+        if(ret != NO_ERR)
+        {
+            graph_free(dst);
+        }
+        return ret;
 }
 
 static int iso_backtrack_smart(
@@ -277,14 +275,14 @@ lab_err_t parallel(
     cl_int n_int = 0;
     size_t global_work_size[2] = {0, 0};
 
+    par_start.tv_sec = 0;
+    par_start.tv_nsec = 0;
     par_end.tv_sec = 0;
     par_end.tv_nsec = 0;
-    clock_gettime(CLOCK_MONOTONIC, &par_start);
 
     if(!g1 || !g2 || !ret_g1 || !ret_g2 || !res)
     {
-        ret = ARG_ERR;
-        goto end;
+        return ARG_ERR;
     }
 
     *res = 0;
@@ -292,6 +290,48 @@ lab_err_t parallel(
     ret_g1->matrix = NULL;
     ret_g2->n = 0;
     ret_g2->matrix = NULL;
+
+    n = g1->n;
+
+    if(g1->n == g2->n && n > 0)
+    {
+        matrix_size = (size_t)n * n * sizeof(u8);
+        flat_m1 = malloc(matrix_size);
+        flat_m2 = malloc(matrix_size);
+        compat_matrix = calloc(n * n, sizeof(u8));
+        if(!flat_m1 || !flat_m2 || !compat_matrix)
+        {
+            ret = MEM_ERR;
+            goto end;
+        }
+
+        for(u8 i = 0; i < n; i++)
+        {
+            memcpy(flat_m1 + i * n, g1->matrix[i], n);
+            memcpy(flat_m2 + i * n, g2->matrix[i], n);
+        }
+
+        buf_m1 = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, matrix_size, flat_m1, &cl_err);
+        buf_m2 = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, matrix_size, flat_m2, &cl_err);
+        buf_compat = clCreateBuffer(context, CL_MEM_WRITE_ONLY, matrix_size, NULL, &cl_err);
+
+        if(!buf_m1 || !buf_m2 || !buf_compat)
+        {
+            ret = PAR_MEM_ERR;
+            goto end;
+        }
+
+        n_int = (cl_int)n;
+        clSetKernelArg(kernel_compat, 0, sizeof(cl_mem), &buf_m1);
+        clSetKernelArg(kernel_compat, 1, sizeof(cl_mem), &buf_m2);
+        clSetKernelArg(kernel_compat, 2, sizeof(cl_mem), &buf_compat);
+        clSetKernelArg(kernel_compat, 3, sizeof(n_int), &n_int);
+
+        global_work_size[0] = n;
+        global_work_size[1] = n;
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &par_start);
 
     if(g1->n != g2->n)
     {
@@ -302,7 +342,6 @@ lab_err_t parallel(
 
     if(count_ones(g1) != count_ones(g2))
     {
-        *res = 0;
         if((ret = copy_graph(ret_g1, g1)) != NO_ERR) goto end;
         if((ret = copy_graph(ret_g2, g2)) != NO_ERR) goto end;
         goto end;
@@ -310,53 +349,17 @@ lab_err_t parallel(
 
     if(!degree_equal(g1, g2))
     {
-        *res = 0;
         if((ret = copy_graph(ret_g1, g1)) != NO_ERR) goto end;
         if((ret = copy_graph(ret_g2, g2)) != NO_ERR) goto end;
         goto end;
     }
 
-    n = g1->n;
     if(n == 0)
     {
         *res = 1;
         goto end;
     }
 
-    matrix_size = (size_t)n * n * sizeof(u8);
-    flat_m1 = malloc(matrix_size);
-    flat_m2 = malloc(matrix_size);
-    compat_matrix = calloc(n * n, sizeof(u8));
-    if(!flat_m1 || !flat_m2 || !compat_matrix)
-    {
-        ret = MEM_ERR;
-        goto end;
-    }
-
-    for(u8 i = 0; i < n; i++)
-    {
-        memcpy(flat_m1 + i * n, g1->matrix[i], n);
-        memcpy(flat_m2 + i * n, g2->matrix[i], n);
-    }
-
-    buf_m1 = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, matrix_size, flat_m1, &cl_err);
-    buf_m2 = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, matrix_size, flat_m2, &cl_err);
-    buf_compat = clCreateBuffer(context, CL_MEM_WRITE_ONLY, matrix_size, NULL, &cl_err);
-
-    if(!buf_m1 || !buf_m2 || !buf_compat)
-    {
-        ret = PAR_MEM_ERR;
-        goto end;
-    }
-
-    n_int = (cl_int)n;
-    clSetKernelArg(kernel_compat, 0, sizeof(cl_mem), &buf_m1);
-    clSetKernelArg(kernel_compat, 1, sizeof(cl_mem), &buf_m2);
-    clSetKernelArg(kernel_compat, 2, sizeof(cl_mem), &buf_compat);
-    clSetKernelArg(kernel_compat, 3, sizeof(n_int), &n_int);
-
-    global_work_size[0] = n;
-    global_work_size[1] = n;
     cl_err = clEnqueueNDRangeKernel(queue, kernel_compat, 2, NULL, global_work_size, NULL, 0, NULL, NULL);
     if(cl_err != CL_SUCCESS)
     {
@@ -394,20 +397,23 @@ lab_err_t parallel(
         if((ret = copy_graph(ret_g2, g2)) != NO_ERR) goto end;
     }
 
-end:
-    if(buf_m1) clReleaseMemObject(buf_m1);
-    if(buf_m2) clReleaseMemObject(buf_m2);
-    if(buf_compat) clReleaseMemObject(buf_compat);
+    end:
+        if(par_start.tv_sec != 0 || par_start.tv_nsec != 0)
+        {
+            clock_gettime(CLOCK_MONOTONIC, &par_end);
+        }
 
-    free(flat_m1);
-    free(flat_m2);
-    free(compat_matrix);
-    free(mapping);
-    free(used);
+        if(buf_m1) clReleaseMemObject(buf_m1);
+        if(buf_m2) clReleaseMemObject(buf_m2);
+        if(buf_compat) clReleaseMemObject(buf_compat);
 
-    // Фиксация времени окончания работы алгоритма
-    clock_gettime(CLOCK_MONOTONIC, &par_end);
-    return ret;
+        free(flat_m1);
+        free(flat_m2);
+        free(compat_matrix);
+        free(mapping);
+        free(used);
+
+        return ret;
 }
 
 static lab_err_t parallel_run(

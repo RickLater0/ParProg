@@ -4,6 +4,8 @@ LDFLAGS = -lOpenCL -L/usr/local/cuda/lib64/
 IFLAGS = -I/usr/local/cuda/include/
 TARGET = lab.elf
 
+N ?= 70
+M ?= "iso"
 SRC_DIR := src
 SRC = $(SRC_DIR)/*.c
 
@@ -16,6 +18,6 @@ clean:
 	rm -f $(TARGET)
 
 test: $(TARGET)
-	./test.sh 70
+	./test.sh $(N) $(M)
 
 .PHONY: all clean
