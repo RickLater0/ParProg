@@ -15,7 +15,7 @@ $(TARGET): $(SRC)
 	$(CC) $(IFLAGS) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) *.mtrx
 
 test: $(TARGET)
 	./test.sh $(N) $(M)

@@ -7,18 +7,19 @@
 #include <time.h>
 #include <signal.h>
 
-#include <ctype.h>
-#include <errno.h>
 #include <string.h>
 
-#define HELP_MESSAGE "Usage: %s <n> \"<matrix1>\" \"<matrix2>\" \n\
+#define MATRIX_PRINT_LIMIT 16
+
+#define HELP_MESSAGE "Usage: %s <n> <m1.mtrx> <m2.mtrx> \n\
             where\n\
             n - matrix size\n\
-            matrix - string containing n*n elements separated by spaces\n"
+            m*.mtrx - text file with n*n whitespace-separated numbers\n\
+                      (0 - nolink, >0 - linked)\n"
 
-static lab_err_t parse_single_matrix(
+static lab_err_t parse_matrix_from_file(
     u8 n,
-    const char *str_arg,
+    const char *path,
     u8 ***matrix_out
 );
 
@@ -49,7 +50,6 @@ static void print_diff(
     u8 res_par
 );
 
-static int  parse_u8_elem(const char *s, u8 *out);
 static void free_matrix(u8 n, u8 **m);
 static void print_matrix_impl(const char *label, const graph_t *g);
 static int  graphs_equal(const graph_t *a, const graph_t *b);
@@ -86,13 +86,13 @@ int main(int argc, char **argv)
         return 0;
     }
     n = (u8)strtoul(argv[1], NULL, 10);
-    if(argc != 4 || n == 0) //2 * n * n - две матрицы, 2 это сам n и argv[0]
+    if(argc != 4 || n == 0)
     {
         printf(HELP_MESSAGE, argv[0]);
         return 0;
     }
 
-    if((ret = parse_single_matrix(
+    if((ret = parse_matrix_from_file(
         n,
         argv[2],
         &matrix1
@@ -101,7 +101,7 @@ int main(int argc, char **argv)
         goto end;
     }
 
-    if((ret = parse_single_matrix(
+    if((ret = parse_matrix_from_file(
         n,
         argv[3],
         &matrix2
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
     {
         goto end;
     }
-    
+
     if((ret = graph_init(
         &graph1,
         n,
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
     {
         goto end;
     }
-    
+
     if((ret = graph_init(
         &graph2,
         n,
@@ -204,61 +204,29 @@ int main(int argc, char **argv)
         return ret == NO_ERR ? 0 : 1;
 }
 
-static int parse_u8_elem(const char *s, u8 *out)
-{
-    unsigned long v = 0;
-
-    if(!s || !out || !*s)
-    {
-        return 0;
-    }
-
-    for(const char *p = s; *p; p++)
-    {
-        if(!isdigit((unsigned char)*p))
-        {
-            return 0;
-        }
-    }
-
-    errno = 0;
-    v = strtoul(s, NULL, 10);
-    if(errno != 0)
-    {
-        return 0;
-    }
-
-    //0 -> 0, всё > 0 -> 1
-    *out = (v > 0) ? 1 : 0;
-    return 1;
-}
-
-static lab_err_t parse_single_matrix(
+static lab_err_t parse_matrix_from_file(
     u8 n,
-    const char *str_arg,
+    const char *path,
     u8 ***matrix_out
 )
 {
     lab_err_t ret = NO_ERR;
     u8 **m = NULL;
-    char *str_copy = NULL;
-    char *token = NULL;
+    FILE *f = NULL;
     u32 count = 0;
-    u8 val = 0;
+    int v = 0;
 
-    if(!n || !str_arg || !matrix_out)
+    if(!n || !path || !matrix_out)
     {
-        ret = ARG_ERR;
-        goto end;
+        return ARG_ERR;
     }
 
     *matrix_out = NULL;
 
-    str_copy = strdup(str_arg);
-    if(!str_copy)
+    f = fopen(path, "r");
+    if(!f)
     {
-        ret = MEM_ERR;
-        goto end;
+        return ARG_ERR;
     }
 
     m = calloc(n, sizeof(u8*));
@@ -278,25 +246,16 @@ static lab_err_t parse_single_matrix(
         }
     }
 
-    token = strtok(str_copy, " \t\n\r");
-    while(token != NULL)
+    while(fscanf(f, "%d", &v) == 1)
     {
-        if(count >= (u32)n * n)
+        if(v < 0 || count >= (u32)n * n)
         {
             ret = ARG_ERR;
             goto end;
         }
 
-        if(!parse_u8_elem(token, &val))
-        {
-            ret = ARG_ERR;
-            goto end;
-        }
-
-        m[count / n][count % n] = val;
+        m[count / n][count % n] = (v > 0) ? 1 : 0;
         count++;
-
-        token = strtok(NULL, " \t\n\r");
     }
 
     if(count != (u32)n * n)
@@ -308,13 +267,16 @@ static lab_err_t parse_single_matrix(
     *matrix_out = m;
     m = NULL;
 
-end:
-    free(str_copy);
-    if(m)
-    {
-        free_matrix(n, m);
-    }
-    return ret;
+    end:
+        if(f)
+        {
+            fclose(f);
+        }
+        if(m)
+        {
+            free_matrix(n, m);
+        }
+        return ret;
 }
 
 static void free_matrix(u8 n, u8 **m)
@@ -336,6 +298,13 @@ static void print_matrix_impl(const char *label, const graph_t *g)
     if(!g)
     {
         printf("%s: (null)\n", label);
+        return;
+    }
+
+    if(g->n > MATRIX_PRINT_LIMIT)
+    {
+        printf("%s: (%ux%u, output skipped: n > %d)\n",
+               label, g->n, g->n, MATRIX_PRINT_LIMIT);
         return;
     }
 

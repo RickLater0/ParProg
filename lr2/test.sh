@@ -1,88 +1,101 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -u
 
-# Остановка при ошибках
-set -e
+N=${1:-50}
+TYPE=${2:-iso}
+LAB=${3:-./lab.elf}
+M1=m1.mtrx
+M2=m2.mtrx
 
-# Определение функций
-
-usage() {
-    echo "Usage: $0 <n> [iso|non_iso]"
-    echo "  n       - matrix size (e.g. 5, 10, 12)"
-    echo "  iso     - generate isomorphic graphs (default)"
-    echo "  non_iso - generate non-isomorphic graphs"
+if ! [ -x "$LAB" ]; then
+    echo "error: $LAB not found" >&2
     exit 1
-}
+fi
 
-main() {
-    local n=0
-    local mode="iso"
-    local lab_exec="./lab.elf"
-
-    if [ "$#" -lt 1 ]; then
-        usage
-    fi
-
-    n="$1"
-    if [ "$#" -ge 2 ]; then
-        mode="$2"
-    fi
-
-    if [ ! -x "$lab_exec" ]; then
-        echo "Error: $lab_exec not found or not executable. Build it first!"
+case "$TYPE" in
+    iso|sparse|noniso|reg) ;;
+    *)
+        echo "usage: $0 <n> <iso|sparse|noniso|reg> [lab]" >&2
+        echo "  iso    - permuted dense random" >&2
+        echo "  sparse - permuted sparse random (parallel wins here)" >&2
+        echo "  noniso - two independent dense random" >&2
+        echo "  reg    - permuted 3-regular" >&2
         exit 1
-    fi
+        ;;
+esac
 
-    # Генерация матриц через Python
-    local args
-    args=$(python3 - "$n" "$mode" << 'EOF'
-import sys
-import random
-
-def generate_graphs(n, mode):
-    # Создаем случайный симметричный граф G1 (без петель)
-    m1 = [[0] * n for _ in range(n)]
-    for i in range(n):
-        for j in range(i + 1, n):
-            val = random.choice([0, 1])
-            m1[i][j] = val
-            m1[j][i] = val
-
-    m2 = [[0] * n for _ in range(n)]
-
-    if mode == "iso":
-        # Перестановка вершин (перестановка P)
-        perm = list(range(n))
-        random.shuffle(perm)
-        for i in range(n):
-            for j in range(n):
-                m2[i][j] = m1[perm[i]][perm[j]]
-    else:
-        # Неизоморфный граф: случайно инвертируем ребра
-        for i in range(n):
-            for j in range(i + 1, n):
-                val = random.choice([0, 1])
-                m2[i][j] = val
-                m2[j][i] = val
-
-    # Преобразуем матрицы в строки разделенные пробелами
-    str1 = " ".join(str(val) for row in m1 for val in row)
-    str2 = " ".join(str(val) for row in m2 for val in row)
-
-    print(f'"{str1}" "{str2}"')
-
-if __name__ == "__main__":
-    n_val = int(sys.argv[1])
-    mode_val = sys.argv[2]
-    generate_graphs(n_val, mode_val)
-EOF
-    )
-
-    echo "Running: $lab_exec $n $args"
-    echo "----------------------------------------"
-    
-    # Запуск лабораторной с переданными строками-матрицами
-    eval "$lab_exec $n $args"
+gen_dense() {
+    awk -v n="$N" -v seed="$1" 'BEGIN{
+        srand(seed);
+        for(i=0;i<n;i++) for(j=0;j<n;j++) m[i,j]=0;
+        for(i=0;i<n;i++) for(j=i+1;j<n;j++){
+            if(rand()<0.5){ m[i,j]=1; m[j,i]=1; }
+        }
+        for(i=0;i<n;i++){ for(j=0;j<n;j++) printf "%d ", m[i,j]; printf "\n"; }
+    }'
 }
 
-# Вызов главной функции
-main "$@"
+gen_sparse() {
+    awk -v n="$N" -v seed="$1" 'BEGIN{
+        srand(seed);
+        p = 2.0 / n;
+        for(i=0;i<n;i++) for(j=0;j<n;j++) m[i,j]=0;
+        for(i=0;i<n;i++) for(j=i+1;j<n;j++){
+            if(rand()<p){ m[i,j]=1; m[j,i]=1; }
+        }
+        for(i=0;i<n;i++){ for(j=0;j<n;j++) printf "%d ", m[i,j]; printf "\n"; }
+    }'
+}
+
+gen_regular() {
+    awk -v n="$N" -v seed="$1" 'BEGIN{
+        if(n%2){ print "reg: n must be even" > "/dev/stderr"; exit 1; }
+        srand(seed);
+        for(i=0;i<n;i++) for(j=0;j<n;j++) m[i,j]=0;
+        for(i=0;i<n;i++){ m[i,(i+1)%n]=1; m[(i+1)%n,i]=1; }
+        h=n/2;
+        for(i=0;i<h;i++){ m[i,i+h]=1; m[i+h,i]=1; }
+        for(i=0;i<n;i++){ for(j=0;j<n;j++) printf "%d ", m[i,j]; printf "\n"; }
+    }'
+}
+
+gen_permute() {
+    awk -v n="$N" -v seed="$1" '
+    BEGIN{
+        srand(seed);
+        for(i=0;i<n;i++) p[i]=i;
+        for(i=n-1;i>0;i--){ k=int(rand()*(i+1)); t=p[i]; p[i]=p[k]; p[k]=t; }
+        idx=0;
+    }
+    { for(i=1;i<=NF;i++) a[idx++]=$i; }
+    END{
+        if(idx != n*n){ print "permute: bad size" > "/dev/stderr"; exit 1; }
+        for(i=0;i<n;i++){ for(j=0;j<n;j++) printf "%d ", a[p[i]*n+p[j]]; printf "\n"; }
+    }'
+}
+
+case "$TYPE" in
+    iso)
+        gen_dense "$N" 100 > "$M1"
+        gen_permute "$N" 200 < "$M1" > "$M2" || exit 1
+        ;;
+    sparse)
+        gen_sparse "$N" 100 > "$M1"
+        gen_permute "$N" 200 < "$M1" > "$M2" || exit 1
+        ;;
+    noniso)
+        gen_dense "$N" 100 > "$M1"
+        gen_dense "$N" 200 > "$M2"
+        ;;
+    reg)
+        gen_regular "$N" 100 > "$M1"
+        gen_permute "$N" 200 < "$M1" > "$M2" || exit 1
+        ;;
+esac
+
+echo "[test] N=$N TYPE=$TYPE"
+echo "[test] m1: $M1 ($(wc -c < "$M1") bytes)"
+echo "[test] m2: $M2 ($(wc -c < "$M2") bytes)"
+echo
+
+"$LAB" "$N" "$M1" "$M2"

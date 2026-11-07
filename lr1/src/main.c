@@ -43,7 +43,7 @@ static uint8_t is_diff(
 
 static struct timespec start;
 static struct timespec end;
-u8 use_color = 0;
+static u8 use_color = 0;
 #define C_RESET   ((use_color ? "\033[0m" : ""))
 #define C_RED     ((use_color ? "\033[1;31m" : ""))
 #define C_GREEN   ((use_color ? "\033[1;32m" : ""))
