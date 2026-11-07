@@ -24,8 +24,8 @@ static lab_err_t copy_graph_permuted(
 );
 
 solution s_solution = sequential;
-struct timespec seq_start = {};
-struct timespec seq_end = {};
+struct timespec seq_start = {0};
+struct timespec seq_end = {0};
 
 
 //mapping[i] = j означает, что вершина i графа g1 соответствует вершине j графа g2

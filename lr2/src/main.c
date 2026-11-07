@@ -69,14 +69,14 @@ int main(int argc, char **argv)
     u8 res_seq = 0;
     u8 res_par = 0;
 
-    graph_t graph1 = {};
-    graph_t graph2 = {};
+    graph_t graph1 = {0};
+    graph_t graph2 = {0};
 
-    graph_t seq_ret_graph1 = {};
-    graph_t seq_ret_graph2 = {};
+    graph_t seq_ret_graph1 = {0};
+    graph_t seq_ret_graph2 = {0};
 
-    graph_t par_ret_graph1 = {};
-    graph_t par_ret_graph2 = {};
+    graph_t par_ret_graph1 = {0};
+    graph_t par_ret_graph2 = {0};
 
     lab_err_t ret = NO_ERR;
 
@@ -511,7 +511,7 @@ static void print_diff(
 
 static void handler(int sig)
 {
-    struct timespec now = {};
+    struct timespec now = {0};
     clock_gettime(CLOCK_MONOTONIC, &now);
 
     if (seq_start.tv_sec != 0 || seq_start.tv_nsec != 0)

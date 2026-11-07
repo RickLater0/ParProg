@@ -20,8 +20,8 @@ static lab_err_t parallel_run(
 );
 
 solution p_solution = parallel_run;
-struct timespec par_start = {};
-struct timespec par_end = {};
+struct timespec par_start = {0};
+struct timespec par_end = {0};
 
 // Глобальные ресурсы OpenCL (инициализируются один раз вне замера времени)
 static int cl_initialized = 0;
@@ -277,7 +277,6 @@ lab_err_t parallel(
     cl_int n_int = 0;
     size_t global_work_size[2] = {0, 0};
 
-    // Сброс par_end и старт таймера полезной работы алгоритма
     par_end.tv_sec = 0;
     par_end.tv_nsec = 0;
     clock_gettime(CLOCK_MONOTONIC, &par_start);
