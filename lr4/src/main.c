@@ -16,6 +16,9 @@
             max_iter - number of Jacobi iterations\n\
             If args are omitted, the same data is read from stdin.\n"
 
+#define RESULT_SEQ_PATH "seq_result.txt"
+#define RESULT_PAR_PATH "par_result.txt"
+
 static lab_err_t parse_u64(
     const char *s,
     u64 *out
@@ -51,6 +54,12 @@ static void print_time(
     const char *label,
     const struct timespec *s,
     const struct timespec *e
+);
+
+static void write_result_file(
+    const char *path,
+    const f64 *top_face,
+    const params_t *p
 );
 
 static void handler(int sig);
@@ -156,6 +165,11 @@ int main(int argc, char **argv)
     print_out("[par]", &params, par_top, &par_start, &par_end);
 
     print_diff(seq_top, par_top, &params);
+
+    write_result_file(RESULT_SEQ_PATH, seq_top, &params);
+    write_result_file(RESULT_PAR_PATH, par_top, &params);
+    printf("\n[wrote] %s\n", RESULT_SEQ_PATH);
+    printf("[wrote] %s\n", RESULT_PAR_PATH);
 
 end:
     free(seq_top);
@@ -335,6 +349,56 @@ static void print_time(
     elapsed = (e->tv_sec - s->tv_sec)
             + (e->tv_nsec - s->tv_nsec) / 1e9;
     printf("%s time: %.6f s\n", label, elapsed);
+}
+
+static void write_result_file(
+    const char *path,
+    const f64 *top_face,
+    const params_t *p
+)
+{
+    FILE *fp = NULL;
+    u64 x = 0;
+    u64 y = 0;
+
+    if (!path || !top_face || !p)
+    {
+        return;
+    }
+
+    fp = fopen(path, "w");
+    if (!fp)
+    {
+        printf("Error occur: cannot open '%s' for writing\n", path);
+        return;
+    }
+
+    fprintf(fp,
+            "# k=%llu m=%llu n=%llu T1=%.6f T2=%.6f radius=%llu max_iter=%llu\n",
+            (unsigned long long)p->k,
+            (unsigned long long)p->m,
+            (unsigned long long)p->n,
+            p->t1, p->t2,
+            (unsigned long long)p->radius,
+            (unsigned long long)p->max_iter);
+    fprintf(fp,
+            "# top face z=%llu, row-major index = x + y*k, format = %%.6e\n",
+            (unsigned long long)(p->n - 1));
+
+    for (y = 0; y < p->m; y++)
+    {
+        for (x = 0; x < p->k; x++)
+        {
+            if (x > 0)
+            {
+                fputc(' ', fp);
+            }
+            fprintf(fp, "%.6e", top_face[x + y * p->k]);
+        }
+        fputc('\n', fp);
+    }
+
+    fclose(fp);
 }
 
 static void handler(int sig)
