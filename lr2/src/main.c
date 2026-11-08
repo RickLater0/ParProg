@@ -185,6 +185,8 @@ int main(int argc, char **argv)
         res_par
     );
 
+    printf("[file] result saved to m[No]_[solution]_result.mtrx (e.g. m1_seq_result.mtrx)\n");
+
     end:
         if(ret != NO_ERR)
         {
@@ -460,7 +462,6 @@ static void print_out(
     print_matrix_impl("graph1", g1, path1);
     print_matrix_impl("graph2", g2, path2);
 
-    //предполагаю res - булев: 1 = изоморфны, 0 = нет
     printf("Isomorphic: %s (res = %u)\n",
            res ? "YES" : "NO", res);
 

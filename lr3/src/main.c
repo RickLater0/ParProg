@@ -166,7 +166,7 @@ int main(int argc, char **argv)
         print_solution("[par]", size, &par_result, &par_start, &par_end);
         print_diff(&seq_result, &par_result);
         write_both_files(&seq_result, &par_result);
-        printf("full results in files: %s, %s\n",
+        printf("[file] full results in: %s, %s\n",
                SEQ_RESULT_FILE, PAR_RESULT_FILE);
     }
 
