@@ -1,5 +1,6 @@
 
 *.mtrx
+compile_commands.json
 
 .vscode/*
 !.vscode/settings.json
