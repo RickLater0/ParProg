@@ -168,8 +168,8 @@ int main(int argc, char **argv)
 
     write_result_file(RESULT_SEQ_PATH, seq_top, &params);
     write_result_file(RESULT_PAR_PATH, par_top, &params);
-    printf("\n[wrote] %s\n", RESULT_SEQ_PATH);
-    printf("[wrote] %s\n", RESULT_PAR_PATH);
+    printf("\n[file] %s\n", RESULT_SEQ_PATH);
+    printf("[file] %s\n", RESULT_PAR_PATH);
 
 end:
     free(seq_top);
