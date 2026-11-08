@@ -8,19 +8,14 @@
 #include <signal.h>
 #include <errno.h>
 
-#include <mpi.h>
-
 #define HELP_MESSAGE "Usage: %s <M> <N>\n\
             where\n\
             M, N - integer interval bounds (inclusive), M <= N\n\
             If args are omitted, 'M N' is read from stdin.\n"
 
-static lab_err_t parse_u64(const char *s, u64 *out);
-
-static lab_err_t test(
-    solution sol,
-    u64 m, u64 n,
-    result_t *res
+static lab_err_t parse_u64(
+    const char *s,
+    u64 *out
 );
 
 static void print_out(
@@ -30,7 +25,10 @@ static void print_out(
     const struct timespec *end
 );
 
-static int  results_equal(const result_t *a, const result_t *b);
+static int results_equal(
+    const result_t *a,
+    const result_t *b
+);
 
 static void print_diff(
     const result_t *seq,
@@ -47,73 +45,95 @@ static void handler(int sig);
 
 int main(int argc, char **argv)
 {
-    u64 m = 0, n = 0;
-    int rank = 0, size = 1;
-
+    u64 m = 0;
+    u64 n = 0;
+    int rank = 0;
+    int parse_ok = 0;
+    lab_err_t ret = NO_ERR;
     result_t seq_result = {0};
     result_t par_result = {0};
 
-    lab_err_t ret = NO_ERR;
-    int parse_ok = 0;
+    ret = parallel_init(&argc, &argv);
+    if (ret != NO_ERR)
+    {
+        printf("Error occur: %s\n", lab_err_string(ret));
+        return 1;
+    }
 
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    rank = parallel_rank();
 
-    /* ---- разбор аргументов (только на rank 0) ---- */
-    if (rank == 0) {
-        if (argc == 3) {
+    if (rank == 0)
+    {
+        if (argc == 3)
+        {
             if (parse_u64(argv[1], &m) == NO_ERR &&
                 parse_u64(argv[2], &n) == NO_ERR)
             {
                 parse_ok = 1;
             }
-        } else if (argc == 1) {
-            unsigned long long mm, nn;
-            if (scanf("%llu %llu", &mm, &nn) == 2) {
-                m = (u64)mm; n = (u64)nn;
+        }
+        else if (argc == 1)
+        {
+            unsigned long long mm = 0;
+            unsigned long long nn = 0;
+            if (scanf("%llu %llu", &mm, &nn) == 2)
+            {
+                m = (u64)mm;
+                n = (u64)nn;
                 parse_ok = 1;
             }
         }
-        if (!parse_ok) {
+        if (!parse_ok)
+        {
             printf(HELP_MESSAGE, argv[0]);
-        } else if (m > n) {
+        }
+        else if (m > n)
+        {
             printf("Error: M > N\n");
             parse_ok = 0;
         }
     }
 
-    MPI_Bcast(&parse_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (!parse_ok) {
-        MPI_Finalize();
+    ret = parallel_broadcast_input(&m, &n, &parse_ok);
+    if (ret != NO_ERR || !parse_ok)
+    {
+        parallel_finalize();
         return 0;
     }
-    MPI_Bcast(&m, 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&n, 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
 
     signal(SIGINT,  handler);
     signal(SIGTERM, handler);
 
-    /* ================== sequential (только rank 0) ================== */
-    if (rank == 0) {
-        ret = test(s_solution, m, n, &seq_result);
-        if (ret != NO_ERR) {
+    if (rank == 0)
+    {
+        ret = s_solution(m, n, &seq_result);
+    }
+    ret = parallel_sync_err(ret);
+    if (ret != NO_ERR)
+    {
+        if (rank == 0)
+        {
             printf("Error occur: %s\n", lab_err_string(ret));
-            goto end;
         }
+        goto end;
+    }
+    if (rank == 0)
+    {
         print_out("[seq]", &seq_result, &seq_start, &seq_end);
     }
 
-    /* ================== parallel (все ранги) ================== */
-    ret = test(p_solution, m, n, &par_result);
-    if (ret != NO_ERR) {
-        if (rank == 0) {
+    ret = p_solution(m, n, &par_result);
+    if (ret != NO_ERR)
+    {
+        if (rank == 0)
+        {
             printf("Error occur: %s\n", lab_err_string(ret));
         }
         goto end;
     }
 
-    if (rank == 0) {
+    if (rank == 0)
+    {
         print_out("[par]", &par_result, &par_start, &par_end);
         print_diff(&seq_result, &par_result);
     }
@@ -121,38 +141,33 @@ int main(int argc, char **argv)
 end:
     result_free(&seq_result);
     result_free(&par_result);
-    MPI_Finalize();
+    parallel_finalize();
     return ret == NO_ERR ? 0 : 1;
 }
 
-/* ---------- разбор ---------- */
-
-static lab_err_t parse_u64(const char *s, u64 *out)
+static lab_err_t parse_u64(
+    const char *s,
+    u64 *out
+)
 {
-    if (!s || !out || !*s) return ARG_ERR;
+    char *end = NULL;
+    unsigned long long v = 0;
+
+    if (!s || !out || !*s)
+    {
+        return ARG_ERR;
+    }
 
     errno = 0;
-    char *end = NULL;
-    unsigned long long v = strtoull(s, &end, 10);
-    if (errno != 0 || end == s || *end != '\0') return ARG_ERR;
+    v = strtoull(s, &end, 10);
+    if (errno != 0 || end == s || *end != '\0')
+    {
+        return ARG_ERR;
+    }
 
     *out = (u64)v;
     return NO_ERR;
 }
-
-/* ---------- обёртка как в примере ---------- */
-
-static lab_err_t test(
-    solution sol,
-    u64 m, u64 n,
-    result_t *res
-)
-{
-    if (!sol || !res) return ARG_ERR;
-    return sol(m, n, res);
-}
-
-/* ---------- вывод ---------- */
 
 static void print_out(
     const char *label,
@@ -161,17 +176,20 @@ static void print_out(
     const struct timespec *end
 )
 {
-    const u64 TAIL = 10;
+    const u64 tail_count = 10;
+    u64 from = 0;
 
     printf("=== %s ===\n", label);
     printf("Found %llu number(s):\n", (unsigned long long)r->count);
 
-    u64 from = (r->count > TAIL) ? (r->count - TAIL) : 0;
-    if (from > 0) {
+    from = (r->count > tail_count) ? (r->count - tail_count) : 0;
+    if (from > 0)
+    {
         printf("  ... (%llu earlier entries omitted) ...\n",
                (unsigned long long)from);
     }
-    for (u64 i = from; i < r->count; i++) {
+    for (u64 i = from; i < r->count; i++)
+    {
         const triple_entry_t *e = &r->entries[i];
         printf("  %llu = %llu * %llu * %llu\n",
                (unsigned long long)e->value,
@@ -182,14 +200,23 @@ static void print_out(
     print_time(label, start, end);
 }
 
-static int results_equal(const result_t *a, const result_t *b)
+static int results_equal(
+    const result_t *a,
+    const result_t *b
+)
 {
-    if (a->count != b->count) return 0;
-    for (u64 i = 0; i < a->count; i++) {
+    if (a->count != b->count)
+    {
+        return 0;
+    }
+    for (u64 i = 0; i < a->count; i++)
+    {
         const triple_entry_t *ea = &a->entries[i];
         const triple_entry_t *eb = &b->entries[i];
         if (ea->value != eb->value ||
-            ea->p1 != eb->p1 || ea->p2 != eb->p2 || ea->p3 != eb->p3)
+            ea->p1 != eb->p1 ||
+            ea->p2 != eb->p2 ||
+            ea->p3 != eb->p3)
         {
             return 0;
         }
@@ -197,23 +224,32 @@ static int results_equal(const result_t *a, const result_t *b)
     return 1;
 }
 
-static void print_diff(const result_t *seq, const result_t *par)
+static void print_diff(
+    const result_t *seq,
+    const result_t *par
+)
 {
     printf("\n[diff] sequential vs parallel:\n");
     printf("  seq.count = %llu, par.count = %llu\n",
            (unsigned long long)seq->count,
            (unsigned long long)par->count);
 
-    if (results_equal(seq, par)) {
+    if (results_equal(seq, par))
+    {
         printf("  results: OK\n");
-    } else {
-        printf("  results: MISMATCH\n");
+    }
+    else
+    {
         u64 lim = seq->count < par->count ? seq->count : par->count;
-        for (u64 i = 0; i < lim; i++) {
+        printf("  results: MISMATCH\n");
+        for (u64 i = 0; i < lim; i++)
+        {
             const triple_entry_t *ea = &seq->entries[i];
             const triple_entry_t *eb = &par->entries[i];
-            if (ea->value != eb->value || ea->p1 != eb->p1 ||
-                ea->p2  != eb->p2  || ea->p3 != eb->p3)
+            if (ea->value != eb->value ||
+                ea->p1 != eb->p1 ||
+                ea->p2 != eb->p2 ||
+                ea->p3 != eb->p3)
             {
                 printf("    first mismatch @ %llu:\n"
                        "      seq: %llu = %llu * %llu * %llu\n"
@@ -231,9 +267,6 @@ static void print_diff(const result_t *seq, const result_t *par)
             }
         }
     }
-
-    print_time("[seq]", &seq_start, &seq_end);
-    print_time("[par]", &par_start, &par_end);
 }
 
 static void print_time(
@@ -242,27 +275,43 @@ static void print_time(
     const struct timespec *e
 )
 {
-    if (!label || !s || !e) return;
-    if (s->tv_sec == 0 && s->tv_nsec == 0) return;
-    if (e->tv_sec == 0 && e->tv_nsec == 0) return;
+    double elapsed = 0.0;
 
-    double elapsed = (e->tv_sec - s->tv_sec)
-                   + (e->tv_nsec - s->tv_nsec) / 1e9;
+    if (!label || !s || !e)
+    {
+        return;
+    }
+    if (s->tv_sec == 0 && s->tv_nsec == 0)
+    {
+        return;
+    }
+    if (e->tv_sec == 0 && e->tv_nsec == 0)
+    {
+        return;
+    }
+
+    elapsed = (e->tv_sec - s->tv_sec)
+            + (e->tv_nsec - s->tv_nsec) / 1e9;
     printf("%s time: %.6f s\n", label, elapsed);
 }
 
 static void handler(int sig)
 {
     struct timespec now = {0};
+
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    if (seq_start.tv_sec != 0 || seq_start.tv_nsec != 0) {
-        if (seq_end.tv_sec == 0 && seq_end.tv_nsec == 0) {
+    if (seq_start.tv_sec != 0 || seq_start.tv_nsec != 0)
+    {
+        if (seq_end.tv_sec == 0 && seq_end.tv_nsec == 0)
+        {
             print_time("[seq] (interrupted)", &seq_start, &now);
         }
     }
-    if (par_start.tv_sec != 0 || par_start.tv_nsec != 0) {
-        if (par_end.tv_sec == 0 && par_end.tv_nsec == 0) {
+    if (par_start.tv_sec != 0 || par_start.tv_nsec != 0)
+    {
+        if (par_end.tv_sec == 0 && par_end.tv_nsec == 0)
+        {
             print_time("[par] (interrupted)", &par_start, &now);
         }
     }

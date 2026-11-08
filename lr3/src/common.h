@@ -10,29 +10,32 @@
 
 #define MODULE_NAME "[LAB_3]"
 
-typedef enum lab_err {
-    NO_ERR = 0,
+typedef enum Lab_err
+{
+    NO_ERR             = 0,
 
-    ARG_ERR            = -1,   /* некорректные аргументы / NULL              */
-    MEM_ERR            = -2,   /* недостаточно памяти                        */
+    ARG_ERR            = -1,   /* некорректные аргументы / NULL */
+    MEM_ERR            = -2,   /* недостаточно памяти */
 
-    PAR_NO_DEVICE      = -5,   /* MPI-среда не инициализирована              */
-    PAR_PROG_BUILD_ERR = -6,   /* ошибка сборки/подготовки параллельной части*/
-    PAR_INIT_ERR       = -7,   /* ошибка инициализации MPI                   */
-    PAR_MEM_ERR        = -8,   /* ошибка выделения MPI-буферов               */
-    PAR_ARG_ERR        = -9,   /* ошибка аргументов параллельной части       */
-    PAR_EXEC_ERR       = -10,  /* ошибка выполнения параллельной части       */
+    PAR_NO_DEVICE      = -5,   /* MPI-среда не инициализирована */
+    PAR_PROG_BUILD_ERR = -6,   /* ошибка сборки параллельной части */
+    PAR_INIT_ERR       = -7,   /* ошибка инициализации MPI */
+    PAR_MEM_ERR        = -8,   /* ошибка выделения MPI-буферов */
+    PAR_ARG_ERR        = -9,   /* ошибка аргументов параллельной части */
+    PAR_EXEC_ERR       = -10,  /* ошибка выполнения параллельной части */
 } lab_err_t;
 
-/* одна найденная тройка: value = p1*p2*p3, p1 < p2 < p3 — простые */
-typedef struct {
+// найденная тройка value = p1*p2*p3, p1 < p2 < p3 — простые
+typedef struct
+{
     u64 value;
     u64 p1;
     u64 p2;
     u64 p3;
 } triple_entry_t;
 
-typedef struct {
+typedef struct
+{
     triple_entry_t *entries;
     u64             count;
     u64             capacity;
@@ -44,10 +47,13 @@ typedef lab_err_t (*solution)(
     result_t *res
 );
 
-lab_err_t result_init  (result_t *r);
-lab_err_t result_append(result_t *r, triple_entry_t e);
-lab_err_t result_sort  (result_t *r);
-void      result_free  (result_t *r);
+lab_err_t result_init(result_t *r);
+lab_err_t result_append(
+    result_t *r,
+    triple_entry_t e
+);
+lab_err_t result_sort(result_t *r);
+void      result_free(result_t *r);
 
 lab_err_t sieve(
     const u64 N,
@@ -56,12 +62,20 @@ lab_err_t sieve(
 );
 
 lab_err_t enumerate_triples(
-    u64 m, u64 n,
-    u64 *primes, u64 np,
-    u64 rank, u64 size,
+    u64 m,
+    u64 n,
+    u64 *primes,
+    u64 np,
+    u64 rank,
+    u64 size,
     result_t *res
 );
 
-const char *lab_err_string(lab_err_t lerr);
+int triple_entry_cmp(
+    const void *a,
+    const void *b
+);
+
+const char *lab_err_string(lab_err_t err);
 
 #endif /* COMMON_H__ */
