@@ -7,19 +7,31 @@
 #include <time.h>
 #include <signal.h>
 #include <errno.h>
+#include <string.h>
 
 #define HELP_MESSAGE "Usage: %s <M> <N>\n\
             where\n\
             M, N - integer interval bounds (inclusive), M <= N\n\
             If args are omitted, 'M N' is read from stdin.\n"
 
+#define RESULT_BUDGET_BYTES (5u * 1024u * 1024u)
+#define SEQ_RESULT_FILE     "seq_result.txt"
+#define PAR_RESULT_FILE     "par_result.txt"
+#define TAIL_LINES          10
+
 static lab_err_t parse_u64(
     const char *s,
     u64 *out
 );
 
-static void print_out(
+static double timespec_diff(
+    const struct timespec *s,
+    const struct timespec *e
+);
+
+static void print_solution(
     const char *label,
+    int ranks,
     const result_t *r,
     const struct timespec *start,
     const struct timespec *end
@@ -31,6 +43,21 @@ static int results_equal(
 );
 
 static void print_diff(
+    const result_t *seq,
+    const result_t *par
+);
+
+static size_t estimate_line_bytes(
+    const triple_entry_t *e
+);
+
+static void write_result_file(
+    const char *path,
+    const result_t *r,
+    u64 tail_start
+);
+
+static void write_both_files(
     const result_t *seq,
     const result_t *par
 );
@@ -48,6 +75,7 @@ int main(int argc, char **argv)
     u64 m = 0;
     u64 n = 0;
     int rank = 0;
+    int size = 1;
     int parse_ok = 0;
     lab_err_t ret = NO_ERR;
     result_t seq_result = {0};
@@ -56,11 +84,12 @@ int main(int argc, char **argv)
     ret = parallel_init(&argc, &argv);
     if (ret != NO_ERR)
     {
-        printf("Error occur: %s\n", lab_err_string(ret));
+        printf("Error: %s\n", lab_err_string(ret));
         return 1;
     }
 
     rank = parallel_rank();
+    size = parallel_size();
 
     if (rank == 0)
     {
@@ -113,13 +142,13 @@ int main(int argc, char **argv)
     {
         if (rank == 0)
         {
-            printf("Error occur: %s\n", lab_err_string(ret));
+            printf("Error: %s\n", lab_err_string(ret));
         }
         goto end;
     }
     if (rank == 0)
     {
-        print_out("[seq]", &seq_result, &seq_start, &seq_end);
+        print_solution("[seq]", 0, &seq_result, &seq_start, &seq_end);
     }
 
     ret = p_solution(m, n, &par_result);
@@ -127,15 +156,18 @@ int main(int argc, char **argv)
     {
         if (rank == 0)
         {
-            printf("Error occur: %s\n", lab_err_string(ret));
+            printf("Error: %s\n", lab_err_string(ret));
         }
         goto end;
     }
 
     if (rank == 0)
     {
-        print_out("[par]", &par_result, &par_start, &par_end);
+        print_solution("[par]", size, &par_result, &par_start, &par_end);
         print_diff(&seq_result, &par_result);
+        write_both_files(&seq_result, &par_result);
+        printf("full results in files: %s, %s\n",
+               SEQ_RESULT_FILE, PAR_RESULT_FILE);
     }
 
 end:
@@ -144,6 +176,7 @@ end:
     parallel_finalize();
     return ret == NO_ERR ? 0 : 1;
 }
+
 
 static lab_err_t parse_u64(
     const char *s,
@@ -169,35 +202,74 @@ static lab_err_t parse_u64(
     return NO_ERR;
 }
 
-static void print_out(
+static double timespec_diff(
+    const struct timespec *s,
+    const struct timespec *e
+)
+{
+    if (!s || !e)
+    {
+        return 0.0;
+    }
+    if ((s->tv_sec == 0 && s->tv_nsec == 0) ||
+        (e->tv_sec == 0 && e->tv_nsec == 0))
+    {
+        return 0.0;
+    }
+    return (double)(e->tv_sec - s->tv_sec)
+         + (double)(e->tv_nsec - s->tv_nsec) / 1e9;
+}
+
+static void print_solution(
     const char *label,
+    int ranks,
     const result_t *r,
     const struct timespec *start,
     const struct timespec *end
 )
 {
-    const u64 tail_count = 10;
     u64 from = 0;
+    u64 shown = 0;
+    double elapsed = 0.0;
 
-    printf("=== %s ===\n", label);
-    printf("Found %llu number(s):\n", (unsigned long long)r->count);
+    from    = (r->count > TAIL_LINES) ? (r->count - TAIL_LINES) : 0;
+    shown   = r->count - from;
+    elapsed = timespec_diff(start, end);
 
-    from = (r->count > tail_count) ? (r->count - tail_count) : 0;
-    if (from > 0)
+    if (ranks > 0)
     {
-        printf("  ... (%llu earlier entries omitted) ...\n",
-               (unsigned long long)from);
+        printf("%s (%d ranks): %llu triples, %.6f s\n",
+               label, ranks,
+               (unsigned long long)r->count, elapsed);
     }
-    for (u64 i = from; i < r->count; i++)
+    else
     {
-        const triple_entry_t *e = &r->entries[i];
-        printf("  %llu = %llu * %llu * %llu\n",
-               (unsigned long long)e->value,
-               (unsigned long long)e->p1,
-               (unsigned long long)e->p2,
-               (unsigned long long)e->p3);
+        printf("%s: %llu triples, %.6f s\n",
+               label,
+               (unsigned long long)r->count, elapsed);
     }
-    print_time(label, start, end);
+
+    if (shown > 0)
+    {
+        if (shown < r->count)
+        {
+            printf("last %llu:\n", (unsigned long long)shown);
+        }
+        else
+        {
+            printf("triples:\n");
+        }
+        for (u64 i = from; i < r->count; i++)
+        {
+            const triple_entry_t *e = &r->entries[i];
+            printf("  %llu = %llu * %llu * %llu\n",
+                   (unsigned long long)e->value,
+                   (unsigned long long)e->p1,
+                   (unsigned long long)e->p2,
+                   (unsigned long long)e->p3);
+        }
+    }
+    printf("\n");
 }
 
 static int results_equal(
@@ -229,7 +301,7 @@ static void print_diff(
     const result_t *par
 )
 {
-    printf("\n[diff] sequential vs parallel:\n");
+    printf("[diff]\n");
     printf("  seq.count = %llu, par.count = %llu\n",
            (unsigned long long)seq->count,
            (unsigned long long)par->count);
@@ -240,7 +312,7 @@ static void print_diff(
     }
     else
     {
-        u64 lim = seq->count < par->count ? seq->count : par->count;
+        u64 lim = (seq->count < par->count) ? seq->count : par->count;
         printf("  results: MISMATCH\n");
         for (u64 i = 0; i < lim; i++)
         {
@@ -267,6 +339,82 @@ static void print_diff(
             }
         }
     }
+    printf("\n");
+}
+
+static size_t estimate_line_bytes(
+    const triple_entry_t *e
+)
+{
+    return (size_t)snprintf(
+        NULL, 0,
+        "%llu = %llu * %llu * %llu\n",
+        (unsigned long long)e->value,
+        (unsigned long long)e->p1,
+        (unsigned long long)e->p2,
+        (unsigned long long)e->p3
+    );
+}
+
+static void write_result_file(
+    const char *path,
+    const result_t *r,
+    u64 tail_start
+)
+{
+    FILE *f = fopen(path, "w");
+
+    if (!f)
+    {
+        fprintf(stderr, "Cannot open %s: %s\n", path, strerror(errno));
+        return;
+    }
+    for (u64 i = tail_start; i < r->count; i++)
+    {
+        const triple_entry_t *e = &r->entries[i];
+        fprintf(f, "%llu = %llu * %llu * %llu\n",
+            (unsigned long long)e->value,
+            (unsigned long long)e->p1,
+            (unsigned long long)e->p2,
+            (unsigned long long)e->p3);
+    }
+    fclose(f);
+}
+
+static void write_both_files(
+    const result_t *seq,
+    const result_t *par
+)
+{
+    const size_t per_file = RESULT_BUDGET_BYTES / 2;
+    u64 min_count = (seq->count < par->count) ? seq->count : par->count;
+    size_t seq_acc = 0;
+    size_t par_acc = 0;
+    u64 k = 0;
+
+    while (k < min_count)
+    {
+        u64 is = seq->count - 1 - k;
+        u64 ip = par->count - 1 - k;
+        size_t bs = estimate_line_bytes(&seq->entries[is]);
+        size_t bp = estimate_line_bytes(&par->entries[ip]);
+
+        if (seq_acc + bs > per_file)
+        {
+            break;
+        }
+        if (par_acc + bp > per_file)
+        {
+            break;
+        }
+
+        seq_acc += bs;
+        par_acc += bp;
+        k++;
+    }
+
+    write_result_file(SEQ_RESULT_FILE, seq, seq->count - k);
+    write_result_file(PAR_RESULT_FILE, par, par->count - k);
 }
 
 static void print_time(
@@ -281,17 +429,13 @@ static void print_time(
     {
         return;
     }
-    if (s->tv_sec == 0 && s->tv_nsec == 0)
-    {
-        return;
-    }
-    if (e->tv_sec == 0 && e->tv_nsec == 0)
+    if ((s->tv_sec == 0 && s->tv_nsec == 0) ||
+        (e->tv_sec == 0 && e->tv_nsec == 0))
     {
         return;
     }
 
-    elapsed = (e->tv_sec - s->tv_sec)
-            + (e->tv_nsec - s->tv_nsec) / 1e9;
+    elapsed = timespec_diff(s, e);
     printf("%s time: %.6f s\n", label, elapsed);
 }
 

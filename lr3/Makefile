@@ -28,7 +28,7 @@ $(OBJ_DIR):
 	@mkdir -p $(OBJ_DIR)
 
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET) *_result.txt
 
 test: $(TARGET)
 	./test.sh $(M) $(N) $(RANKS)

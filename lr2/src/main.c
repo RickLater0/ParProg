@@ -51,7 +51,8 @@ static void print_diff(
 );
 
 static void free_matrix(u8 n, u8 **m);
-static void print_matrix_impl(const char *label, const graph_t *g);
+static void print_matrix_impl(const char *label, const graph_t *g, const char *path);
+static lab_err_t write_matrix_to_file(const graph_t *g, const char *path);
 static int  graphs_equal(const graph_t *a, const graph_t *b);
 static void print_time(
     const char *label,
@@ -293,7 +294,34 @@ static void free_matrix(u8 n, u8 **m)
     free(m);
 }
 
-static void print_matrix_impl(const char *label, const graph_t *g)
+static lab_err_t write_matrix_to_file(const graph_t *g, const char *path)
+{
+    FILE *f = NULL;
+
+    if(!g || !g->matrix || !path)
+    {
+        return ARG_ERR;
+    }
+
+    f = fopen(path, "w");
+    if(!f)
+    {
+        return ARG_ERR;
+    }
+
+    for(u8 i = 0; i < g->n; i++)
+    {
+        for(u8 j = 0; j < g->n; j++)
+        {
+            fprintf(f, "%u%s", g->matrix[i][j], (j + 1 < g->n) ? " " : "\n");
+        }
+    }
+
+    fclose(f);
+    return NO_ERR;
+}
+
+static void print_matrix_impl(const char *label, const graph_t *g, const char *path)
 {
     if(!g)
     {
@@ -303,8 +331,16 @@ static void print_matrix_impl(const char *label, const graph_t *g)
 
     if(g->n > MATRIX_PRINT_LIMIT)
     {
-        printf("%s: (%ux%u, output skipped: n > %d)\n",
-               label, g->n, g->n, MATRIX_PRINT_LIMIT);
+        if(path && write_matrix_to_file(g, path) == NO_ERR)
+        {
+            printf("%s: (%ux%u, written to %s)\n",
+                   label, g->n, g->n, path);
+        }
+        else
+        {
+            printf("%s: (%ux%u, output skipped: n > %d)\n",
+                   label, g->n, g->n, MATRIX_PRINT_LIMIT);
+        }
         return;
     }
 
@@ -407,8 +443,22 @@ static void print_out(
     const struct timespec *end
 )
 {
-    print_matrix_impl("graph1", g1);
-    print_matrix_impl("graph2", g2);
+    const char *path1 = NULL;
+    const char *path2 = NULL;
+
+    if(label && strcmp(label, "[seq]") == 0)
+    {
+        path1 = "m1_seq_out.mtrx";
+        path2 = "m2_seq_out.mtrx";
+    }
+    else if(label && strcmp(label, "[par]") == 0)
+    {
+        path1 = "m1_par_out.mtrx";
+        path2 = "m2_par_out.mtrx";
+    }
+
+    print_matrix_impl("graph1", g1, path1);
+    print_matrix_impl("graph2", g2, path2);
 
     //предполагаю res - булев: 1 = изоморфны, 0 = нет
     printf("Isomorphic: %s (res = %u)\n",
@@ -453,15 +503,15 @@ static void print_diff(
 
         if(!graphs_equal(s1, p1) && !graphs_equal(s1, p2))
         {
-            print_matrix_impl("    s.g1", s1);
-            print_matrix_impl("    p.g1", p1);
-            print_matrix_impl("    p.g2", p2);
+            print_matrix_impl("    s.g1", s1, NULL);
+            print_matrix_impl("    p.g1", p1, NULL);
+            print_matrix_impl("    p.g2", p2, NULL);
         }
         if(!graphs_equal(s2, p1) && !graphs_equal(s2, p2))
         {
-            print_matrix_impl("    s.g2", s2);
-            print_matrix_impl("    p.g1", p1);
-            print_matrix_impl("    p.g2", p2);
+            print_matrix_impl("    s.g2", s2, NULL);
+            print_matrix_impl("    p.g1", p1, NULL);
+            print_matrix_impl("    p.g2", p2, NULL);
         }
     }
 

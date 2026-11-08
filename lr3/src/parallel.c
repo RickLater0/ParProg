@@ -729,8 +729,6 @@ lab_err_t parallel(
         return err;
     }
 
-    // Старт таймера: включаем полезную работу (решето + перебор + сортировка),
-    // но исключаем накладные расходы (сбор результатов в gather_to_root)
     clock_gettime(CLOCK_MONOTONIC, &par_start);
 
     err = parallel_sieve(n / 6 + 10, g_rank, g_size, &primes, &np);
@@ -750,9 +748,7 @@ lab_err_t parallel(
     {
         goto end;
     }
-
-    // Конец таймера: gather_to_root — это накладные расходы на вывод,
-    // их не засчитываем в время параллельного решения
+    
     clock_gettime(CLOCK_MONOTONIC, &par_end);
 
     err = gather_to_root(g_rank, g_size, res);
