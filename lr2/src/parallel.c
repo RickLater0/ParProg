@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdio.h>
 
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
@@ -27,48 +28,122 @@ static int cl_initialized = 0;
 static cl_context context = NULL;
 static cl_command_queue queue = NULL;
 static cl_program program = NULL;
+static cl_kernel kernel_degrees = NULL;
 static cl_kernel kernel_compat = NULL;
 static cl_device_id device = NULL;
 
-static const char *ocl_source = 
-"#define u8 unsigned char\n"
-"__kernel void vertex_compatibility(\n"
-"    __global const u8 *m1,\n"
-"    __global const u8 *m2,\n"
-"    __global u8 *compat,\n"
-"    int n)\n"
-"{\n"
-"    int i = get_global_id(0);\n"
-"    int j = get_global_id(1);\n"
-"    if(i >= n || j >= n) return;\n"
-"\n"
-"    int deg1 = 0;\n"
-"    int deg2 = 0;\n"
-"    for(int k = 0; k < n; k++)\n"
-"    {\n"
-"        if(m1[i * n + k]) deg1++;\n"
-"        if(m2[j * n + k]) deg2++;\n"
-"    }\n"
-"\n"
-"    if(deg1 == deg2)\n"
-"    {\n"
-"        compat[i * n + j] = 1;\n"
-"    }\n"
-"    else\n"
-"    {\n"
-"        compat[i * n + j] = 0;\n"
-"    }\n"
-"}\n";
+static const char *ocl_source =
+"#define u8 unsigned char\n\
+\n\
+__kernel void compute_degrees(\n\
+    __global const u8 *m1,\n\
+    __global const u8 *m2,\n\
+    __global u8 *deg1,\n\
+    __global u8 *deg2,\n\
+    int n)\n\
+{\n\
+    int i = get_global_id(0);\n\
+    if(i >= n) return;\n\
+\n\
+    int d1 = 0;\n\
+    int d2 = 0;\n\
+    for(int k = 0; k < n; k++)\n\
+    {\n\
+        if(m1[i * n + k]) d1++;\n\
+        if(m2[i * n + k]) d2++;\n\
+    }\n\
+    deg1[i] = (u8)d1;\n\
+    deg2[i] = (u8)d2;\n\
+}\n\
+\n\
+__kernel void vertex_compatibility(\n\
+    __global const u8 *deg1,\n\
+    __global const u8 *deg2,\n\
+    __global u8 *compat,\n\
+    int n)\n\
+{\n\
+    int i = get_global_id(0);\n\
+    int j = get_global_id(1);\n\
+    if(i >= n || j >= n) return;\n\
+\n\
+    compat[i * n + j] = (deg1[i] == deg2[j]) ? 1 : 0;\n\
+}\n\
+";
+
+static void release_opencl_resources(void)
+{
+    if(kernel_compat)
+    {
+        clReleaseKernel(kernel_compat);
+        kernel_compat = NULL;
+    }
+    if(kernel_degrees)
+    {
+        clReleaseKernel(kernel_degrees);
+        kernel_degrees = NULL;
+    }
+    if(program)
+    {
+        clReleaseProgram(program);
+        program = NULL;
+    }
+    if(queue)
+    {
+        clReleaseCommandQueue(queue);
+        queue = NULL;
+    }
+    if(context)
+    {
+        clReleaseContext(context);
+        context = NULL;
+    }
+
+    device = NULL;
+    cl_initialized = 0;
+}
+
+static void print_build_log(cl_program prog, cl_device_id dev)
+{
+    size_t log_size = 0;
+    char *log = NULL;
+
+    if(!prog || !dev)
+    {
+        return;
+    }
+
+    if(clGetProgramBuildInfo(prog, dev, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size) != CL_SUCCESS)
+    {
+        return;
+    }
+    if(log_size == 0)
+    {
+        return;
+    }
+
+    log = malloc(log_size);
+    if(!log)
+    {
+        return;
+    }
+
+    if(clGetProgramBuildInfo(prog, dev, CL_PROGRAM_BUILD_LOG, log_size, log, NULL) == CL_SUCCESS)
+    {
+        fprintf(stderr, "OpenCL build log:\n%s\n", log);
+    }
+
+    free(log);
+}
 
 static lab_err_t init_opencl_once(void)
 {
+    cl_platform_id platform = NULL;
+    cl_int err = 0;
+
     if(cl_initialized)
     {
         return NO_ERR;
     }
-
-    cl_platform_id platform = NULL;
-    cl_int err = 0;
 
     if(clGetPlatformIDs(1, &platform, NULL) != CL_SUCCESS)
     {
@@ -79,13 +154,16 @@ static lab_err_t init_opencl_once(void)
     {
         if(clGetDeviceIDs(platform, CL_DEVICE_TYPE_CPU, 1, &device, NULL) != CL_SUCCESS)
         {
+            device = NULL;
             return PAR_NO_DEVICE;
         }
     }
 
     context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
-    if(!context)
+    if(!context || err != CL_SUCCESS)
     {
+        context = NULL;
+        release_opencl_resources();
         return PAR_INIT_ERR;
     }
 
@@ -94,25 +172,41 @@ static lab_err_t init_opencl_once(void)
 #else
     queue = clCreateCommandQueue(context, device, 0, &err);
 #endif
-    if(!queue)
+    if(!queue || err != CL_SUCCESS)
     {
+        queue = NULL;
+        release_opencl_resources();
         return PAR_INIT_ERR;
     }
 
     program = clCreateProgramWithSource(context, 1, &ocl_source, NULL, &err);
-    if(!program)
+    if(!program || err != CL_SUCCESS)
     {
+        program = NULL;
+        release_opencl_resources();
         return PAR_PROG_BUILD_ERR;
     }
 
     if(clBuildProgram(program, 1, &device, NULL, NULL, NULL) != CL_SUCCESS)
     {
+        print_build_log(program, device);
+        release_opencl_resources();
         return PAR_PROG_BUILD_ERR;
     }
 
-    kernel_compat = clCreateKernel(program, "vertex_compatibility", &err);
-    if(!kernel_compat)
+    kernel_degrees = clCreateKernel(program, "compute_degrees", &err);
+    if(!kernel_degrees || err != CL_SUCCESS)
     {
+        kernel_degrees = NULL;
+        release_opencl_resources();
+        return PAR_EXEC_ERR;
+    }
+
+    kernel_compat = clCreateKernel(program, "vertex_compatibility", &err);
+    if(!kernel_compat || err != CL_SUCCESS)
+    {
+        kernel_compat = NULL;
+        release_opencl_resources();
         return PAR_EXEC_ERR;
     }
 
@@ -268,12 +362,16 @@ lab_err_t parallel(
     u8 *flat_m2 = NULL;
     cl_mem buf_m1 = NULL;
     cl_mem buf_m2 = NULL;
+    cl_mem buf_deg1 = NULL;
+    cl_mem buf_deg2 = NULL;
     cl_mem buf_compat = NULL;
     int found = 0;
     size_t matrix_size = 0;
+    size_t degrees_size = 0;
     cl_int cl_err = 0;
     cl_int n_int = 0;
-    size_t global_work_size[2] = {0, 0};
+    size_t global_1d = 0;
+    size_t global_2d[2] = {0, 0};
 
     par_start.tv_sec = 0;
     par_start.tv_nsec = 0;
@@ -295,7 +393,9 @@ lab_err_t parallel(
 
     if(g1->n == g2->n && n > 0)
     {
-        matrix_size = (size_t)n * n * sizeof(u8);
+        matrix_size  = (size_t)n * n * sizeof(u8);
+        degrees_size = (size_t)n * sizeof(u8);
+
         flat_m1 = malloc(matrix_size);
         flat_m2 = malloc(matrix_size);
         compat_matrix = calloc(n * n, sizeof(u8));
@@ -307,28 +407,84 @@ lab_err_t parallel(
 
         for(u8 i = 0; i < n; i++)
         {
-            memcpy(flat_m1 + i * n, g1->matrix[i], n);
-            memcpy(flat_m2 + i * n, g2->matrix[i], n);
+            memcpy(flat_m1 + (size_t)i * n, g1->matrix[i], n);
+            memcpy(flat_m2 + (size_t)i * n, g2->matrix[i], n);
         }
 
-        buf_m1 = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, matrix_size, flat_m1, &cl_err);
-        buf_m2 = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, matrix_size, flat_m2, &cl_err);
-        buf_compat = clCreateBuffer(context, CL_MEM_WRITE_ONLY, matrix_size, NULL, &cl_err);
-
-        if(!buf_m1 || !buf_m2 || !buf_compat)
+        buf_m1 = clCreateBuffer(context,
+            CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+            matrix_size, flat_m1, &cl_err);
+        if(!buf_m1 || cl_err != CL_SUCCESS)
         {
+            buf_m1 = NULL;
+            ret = PAR_MEM_ERR;
+            goto end;
+        }
+
+        buf_m2 = clCreateBuffer(context,
+            CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+            matrix_size, flat_m2, &cl_err);
+        if(!buf_m2 || cl_err != CL_SUCCESS)
+        {
+            buf_m2 = NULL;
+            ret = PAR_MEM_ERR;
+            goto end;
+        }
+
+        buf_deg1 = clCreateBuffer(context,
+            CL_MEM_WRITE_ONLY,
+            degrees_size, NULL, &cl_err);
+        if(!buf_deg1 || cl_err != CL_SUCCESS)
+        {
+            buf_deg1 = NULL;
+            ret = PAR_MEM_ERR;
+            goto end;
+        }
+
+        buf_deg2 = clCreateBuffer(context,
+            CL_MEM_WRITE_ONLY,
+            degrees_size, NULL, &cl_err);
+        if(!buf_deg2 || cl_err != CL_SUCCESS)
+        {
+            buf_deg2 = NULL;
+            ret = PAR_MEM_ERR;
+            goto end;
+        }
+
+        buf_compat = clCreateBuffer(context,
+            CL_MEM_WRITE_ONLY,
+            matrix_size, NULL, &cl_err);
+        if(!buf_compat || cl_err != CL_SUCCESS)
+        {
+            buf_compat = NULL;
             ret = PAR_MEM_ERR;
             goto end;
         }
 
         n_int = (cl_int)n;
-        clSetKernelArg(kernel_compat, 0, sizeof(cl_mem), &buf_m1);
-        clSetKernelArg(kernel_compat, 1, sizeof(cl_mem), &buf_m2);
-        clSetKernelArg(kernel_compat, 2, sizeof(cl_mem), &buf_compat);
-        clSetKernelArg(kernel_compat, 3, sizeof(n_int), &n_int);
 
-        global_work_size[0] = n;
-        global_work_size[1] = n;
+        if((cl_err = clSetKernelArg(kernel_degrees, 0, sizeof(cl_mem), &buf_m1))    != CL_SUCCESS ||
+           (cl_err = clSetKernelArg(kernel_degrees, 1, sizeof(cl_mem), &buf_m2))    != CL_SUCCESS ||
+           (cl_err = clSetKernelArg(kernel_degrees, 2, sizeof(cl_mem), &buf_deg1))  != CL_SUCCESS ||
+           (cl_err = clSetKernelArg(kernel_degrees, 3, sizeof(cl_mem), &buf_deg2))  != CL_SUCCESS ||
+           (cl_err = clSetKernelArg(kernel_degrees, 4, sizeof(cl_int), &n_int))     != CL_SUCCESS)
+        {
+            ret = PAR_ARG_ERR;
+            goto end;
+        }
+
+        if((cl_err = clSetKernelArg(kernel_compat, 0, sizeof(cl_mem), &buf_deg1))   != CL_SUCCESS ||
+           (cl_err = clSetKernelArg(kernel_compat, 1, sizeof(cl_mem), &buf_deg2))   != CL_SUCCESS ||
+           (cl_err = clSetKernelArg(kernel_compat, 2, sizeof(cl_mem), &buf_compat)) != CL_SUCCESS ||
+           (cl_err = clSetKernelArg(kernel_compat, 3, sizeof(cl_int), &n_int))      != CL_SUCCESS)
+        {
+            ret = PAR_ARG_ERR;
+            goto end;
+        }
+
+        global_1d    = (size_t)n;
+        global_2d[0] = (size_t)n;
+        global_2d[1] = (size_t)n;
     }
 
     clock_gettime(CLOCK_MONOTONIC, &par_start);
@@ -360,14 +516,24 @@ lab_err_t parallel(
         goto end;
     }
 
-    cl_err = clEnqueueNDRangeKernel(queue, kernel_compat, 2, NULL, global_work_size, NULL, 0, NULL, NULL);
+    cl_err = clEnqueueNDRangeKernel(queue, kernel_degrees, 1,
+        NULL, &global_1d, NULL, 0, NULL, NULL);
     if(cl_err != CL_SUCCESS)
     {
         ret = PAR_EXEC_ERR;
         goto end;
     }
 
-    cl_err = clEnqueueReadBuffer(queue, buf_compat, CL_TRUE, 0, matrix_size, compat_matrix, 0, NULL, NULL);
+    cl_err = clEnqueueNDRangeKernel(queue, kernel_compat, 2,
+        NULL, global_2d, NULL, 0, NULL, NULL);
+    if(cl_err != CL_SUCCESS)
+    {
+        ret = PAR_EXEC_ERR;
+        goto end;
+    }
+
+    cl_err = clEnqueueReadBuffer(queue, buf_compat, CL_TRUE, 0,
+        matrix_size, compat_matrix, 0, NULL, NULL);
     if(cl_err != CL_SUCCESS)
     {
         ret = PAR_MEM_ERR;
@@ -403,8 +569,10 @@ lab_err_t parallel(
             clock_gettime(CLOCK_MONOTONIC, &par_end);
         }
 
-        if(buf_m1) clReleaseMemObject(buf_m1);
-        if(buf_m2) clReleaseMemObject(buf_m2);
+        if(buf_m1)     clReleaseMemObject(buf_m1);
+        if(buf_m2)     clReleaseMemObject(buf_m2);
+        if(buf_deg1)   clReleaseMemObject(buf_deg1);
+        if(buf_deg2)   clReleaseMemObject(buf_deg2);
         if(buf_compat) clReleaseMemObject(buf_compat);
 
         free(flat_m1);
