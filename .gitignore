@@ -1,7 +1,11 @@
+graphs/
+graphs/
 
 *.mtrx
 compile_commands.json
 *_result.txt
+*.swp
+*.bench
 
 .vscode/*
 !.vscode/settings.json
