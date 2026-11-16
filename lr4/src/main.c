@@ -148,14 +148,6 @@ int main(int argc, char **argv)
     printf("  max_iter  : %llu\n", (unsigned long long)params.max_iter);
     printf("\n");
 
-    ret = s_solution(&params, seq_top);
-    if (ret != NO_ERR)
-    {
-        printf("Error occur: %s\n", lab_err_string(ret));
-        goto end;
-    }
-    print_out("[seq]", &params, seq_top, &seq_start, &seq_end);
-
     ret = p_solution(&params, par_top);
     if (ret != NO_ERR)
     {
@@ -163,6 +155,14 @@ int main(int argc, char **argv)
         goto end;
     }
     print_out("[par]", &params, par_top, &par_start, &par_end);
+
+    ret = s_solution(&params, seq_top);
+    if (ret != NO_ERR)
+    {
+        printf("Error occur: %s\n", lab_err_string(ret));
+        goto end;
+    }
+    print_out("[seq]", &params, seq_top, &seq_start, &seq_end);
 
     print_diff(seq_top, par_top, &params);
 

@@ -81,10 +81,10 @@ int main(int argc, char *argv[])
     }
 
 
-    printf("Parallel:\n");
+    printf("[par]\n");
     test(parallel, N, k, &M1);
 
-    printf("Sequence:\n");
+    printf("[seq]\n");
     test(sequence, N, k, &M2);
 
     has_diff = is_diff(M1, M2, k);

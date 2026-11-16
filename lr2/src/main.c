@@ -132,28 +132,6 @@ int main(int argc, char **argv)
     signal(SIGINT,  handler);
     signal(SIGTERM, handler);
 
-    //testing sequential solution
-    ret = test(
-        s_solution,
-        &graph1,
-        &graph2,
-        &seq_ret_graph1,
-        &seq_ret_graph2,
-        &res_seq
-    );
-    if(ret != NO_ERR)
-    {
-        goto end;
-    }
-    print_out(
-        "[seq]",
-        &seq_ret_graph1,
-        &seq_ret_graph2,
-        res_seq,
-        &seq_start,
-        &seq_end
-    );
-
     //testing parallel solution
     ret = test(
         p_solution,
@@ -183,6 +161,28 @@ int main(int argc, char **argv)
         &par_ret_graph2,
         res_seq,
         res_par
+    );
+
+    //testing sequential solution
+    ret = test(
+        s_solution,
+        &graph1,
+        &graph2,
+        &seq_ret_graph1,
+        &seq_ret_graph2,
+        &res_seq
+    );
+    if(ret != NO_ERR)
+    {
+        goto end;
+    }
+    print_out(
+        "[seq]",
+        &seq_ret_graph1,
+        &seq_ret_graph2,
+        res_seq,
+        &seq_start,
+        &seq_end
     );
 
     printf("[file] result saved to m[No]_[solution]_result.mtrx (e.g. m1_seq_result.mtrx)\n");

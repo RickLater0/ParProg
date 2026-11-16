@@ -20,9 +20,9 @@ fi
 
 echo ">>> [$M, $N]  MPI-ranks: $RANKS"
 
-MPIRUN_FLAGS=""
+MPIRUN_FLAGS="--oversubscribe"
 if [ "$(id -u)" -eq 0 ]; then
-    MPIRUN_FLAGS="--allow-run-as-root"     # удобно в Docker/CI
+    MPIRUN_FLAGS="$MPIRUN_FLAGS --allow-run-as-root"
 fi
 
 mpirun $MPIRUN_FLAGS -np "$RANKS" ./lab.elf "$M" "$N"

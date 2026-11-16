@@ -133,6 +133,21 @@ int main(int argc, char **argv)
     signal(SIGINT,  handler);
     signal(SIGTERM, handler);
 
+    ret = p_solution(m, n, &par_result);
+    if (ret != NO_ERR)
+    {
+        if (rank == 0)
+        {
+            printf("Error: %s\n", lab_err_string(ret));
+        }
+        goto end;
+    }
+
+    if (rank == 0)
+    {
+        print_solution("[par]", size, &par_result, &par_start, &par_end);
+    }
+
     if (rank == 0)
     {
         ret = s_solution(m, n, &seq_result);
@@ -149,26 +164,12 @@ int main(int argc, char **argv)
     if (rank == 0)
     {
         print_solution("[seq]", 0, &seq_result, &seq_start, &seq_end);
-    }
-
-    ret = p_solution(m, n, &par_result);
-    if (ret != NO_ERR)
-    {
-        if (rank == 0)
-        {
-            printf("Error: %s\n", lab_err_string(ret));
-        }
-        goto end;
-    }
-
-    if (rank == 0)
-    {
-        print_solution("[par]", size, &par_result, &par_start, &par_end);
         print_diff(&seq_result, &par_result);
         write_both_files(&seq_result, &par_result);
         printf("[file] full results in: %s, %s\n",
                SEQ_RESULT_FILE, PAR_RESULT_FILE);
     }
+
 
 end:
     result_free(&seq_result);
