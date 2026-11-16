@@ -72,6 +72,7 @@ static void handler(int sig);
 
 int main(int argc, char **argv)
 {
+    setbuf(stdout, NULL);
     u64 m = 0;
     u64 n = 0;
     int rank = 0;
@@ -80,8 +81,6 @@ int main(int argc, char **argv)
     lab_err_t ret = NO_ERR;
     result_t seq_result = {0};
     result_t par_result = {0};
-
-    setbuf(stdout, NULL);
 
     ret = parallel_init(&argc, &argv);
     if (ret != NO_ERR)

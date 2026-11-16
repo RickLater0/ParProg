@@ -64,6 +64,7 @@ static void handler(int sig);
 
 int main(int argc, char **argv)
 {
+    setbuf(stdout, NULL);
     u8 n = 0;
     u8 **matrix1 = NULL;
     u8 **matrix2 = NULL;
@@ -80,8 +81,6 @@ int main(int argc, char **argv)
     graph_t par_ret_graph2 = {0};
 
     lab_err_t ret = NO_ERR;
-
-    setbuf(stdout, NULL);
 
     if(argc == 1)
     {

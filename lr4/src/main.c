@@ -66,14 +66,13 @@ static void handler(int sig);
 
 int main(int argc, char **argv)
 {
+    setbuf(stdout, NULL);
     params_t params = {0};
     f64 *seq_top = NULL;
     f64 *par_top = NULL;
     u64 top_size = 0;
     lab_err_t ret = NO_ERR;
     int parse_ok = 0;
-
-    setbuf(stdout, NULL);
 
     if (argc == 8)
     {
