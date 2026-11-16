@@ -81,6 +81,8 @@ int main(int argc, char **argv)
 
     lab_err_t ret = NO_ERR;
 
+    setbuf(stdout, NULL);
+
     if(argc == 1)
     {
         printf(HELP_MESSAGE, argv[0]);
@@ -154,15 +156,6 @@ int main(int argc, char **argv)
         &par_end
     );
 
-    print_diff(
-        &seq_ret_graph1,
-        &seq_ret_graph2,
-        &par_ret_graph1,
-        &par_ret_graph2,
-        res_seq,
-        res_par
-    );
-
     //testing sequential solution
     ret = test(
         s_solution,
@@ -183,6 +176,15 @@ int main(int argc, char **argv)
         res_seq,
         &seq_start,
         &seq_end
+    );
+
+    print_diff(
+        &seq_ret_graph1,
+        &seq_ret_graph2,
+        &par_ret_graph1,
+        &par_ret_graph2,
+        res_seq,
+        res_par
     );
 
     printf("[file] result saved to m[No]_[solution]_result.mtrx (e.g. m1_seq_result.mtrx)\n");

@@ -73,6 +73,8 @@ int main(int argc, char **argv)
     lab_err_t ret = NO_ERR;
     int parse_ok = 0;
 
+    setbuf(stdout, NULL);
+
     if (argc == 8)
     {
         parse_ok =

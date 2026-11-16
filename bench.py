@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Универсальный бенчмарк. Совместим с Python 3.6+.
-Использует динамический таймер для последовательной части.
-"""
 import argparse
 import os
 import re
@@ -38,14 +34,11 @@ def run_dynamic(cmd, env_extra, cwd, timeout_par, timeout_seq):
     env = os.environ.copy()
     env.update(env_extra)
     
-    try:
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            universal_newlines=True, env=env, cwd=cwd,
-            start_new_session=True, bufsize=1
-        )
-    except Exception:
-        return None, [], False
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        universal_newlines=True, env=env, cwd=cwd,
+        start_new_session=True, bufsize=1
+    )
 
     sel = selectors.DefaultSelector()
     sel.register(proc.stdout, selectors.EVENT_READ)
@@ -55,29 +48,37 @@ def run_dynamic(cmd, env_extra, cwd, timeout_par, timeout_seq):
     output_lines = []
     timed_out = False
     
-    while True:
-        if time.time() - start_time > current_timeout:
+    try:
+        while True:
+            if time.time() - start_time > current_timeout:
+                timed_out = True
+                break
+                
+            events = sel.select(timeout=0.05)
+            for key, _ in events:
+                line = proc.stdout.readline()
+                if not line:
+                    return proc.returncode, output_lines, False
+                
+                output_lines.append(line)
+                
+                # Ждем маркер параллельной части, чтобы сбросить таймер
+                if "[par]" in line or "Parallel:" in line:
+                    start_time = time.time()
+                    current_timeout = timeout_seq
+    except KeyboardInterrupt:
+        print("\n# Caught Ctrl+C, killing child process...", file=sys.stderr)
+        raise
+    finally:
+        # Этот блок гарантированно убьет процесс, если он еще жив
+        sel.close()
+        if proc.poll() is None:
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
             except ProcessLookupError:
                 pass
             proc.wait()
-            timed_out = True
-            break
             
-        events = sel.select(timeout=0.05)
-        for key, _ in events:
-            line = proc.stdout.readline()
-            if not line:
-                proc.wait()
-                return proc.returncode, output_lines, timed_out
-            
-            output_lines.append(line)
-            
-            if "[par]" in line or "Parallel:" in line:
-                start_time = time.time()
-                current_timeout = timeout_seq
-                
     return proc.returncode, output_lines, timed_out
 
 def build(lab_dir, cwd):
@@ -115,7 +116,7 @@ def bench_openmp(args, lab_dir):
             for p in args.p:
                 par, seq = [], []
                 for _ in range(args.runs):
-                    cmd = ["stdbuf", "-oL", binary, str(N), str(k)]
+                    cmd = [binary, str(N), str(k)]
                     ret, out_lines, timed_out = run_dynamic(
                         cmd, {'OMP_NUM_THREADS': str(p)},
                         cwd, args.timeout_par, args.timeout_seq
@@ -124,8 +125,8 @@ def bench_openmp(args, lab_dir):
                     label = None
                     for line in out.splitlines():
                         s = line.strip()
-                        if s == 'Parallel:': label = 'parallel'
-                        elif s == 'Sequence:': label = 'sequence'
+                        if s == '[par]': label = 'parallel'
+                        elif s == '[seq]': label = 'sequence'
                         else:
                             m = TIME_RE.search(line)
                             if m and label:
@@ -155,7 +156,7 @@ def bench_opencl(args, lab_dir):
             
             par, seq = [], []
             for _ in range(args.runs):
-                cmd = ["stdbuf", "-oL", "bash", "test.sh", str(N), typ, binary]
+                cmd = ["bash", "test.sh", str(N), typ, binary]
                 ret, out_lines, timed_out = run_dynamic(
                     cmd, {}, cwd, args.timeout_par, args.timeout_seq
                 )
@@ -179,7 +180,7 @@ def bench_mpi(args, lab_dir):
             for p in args.p:
                 par, seq = [], []
                 for _ in range(args.runs):
-                    cmd = ["stdbuf", "-oL", "bash", "test.sh", str(M), str(N), str(p)]
+                    cmd = ["bash", "test.sh", str(M), str(N), str(p)]
                     ret, out_lines, timed_out = run_dynamic(
                         cmd, {}, cwd, args.timeout_par, args.timeout_seq
                     )
@@ -204,19 +205,16 @@ def bench_cuda(args, lab_dir):
         print("# test.sh not found in {}".format(lab_dir), file=sys.stderr)
         return
 
-    # Для CUDA в test.sh: K M N T1 T2 RADIUS MAX_ITER
-    # args.N - это K, args.k - это M. N зафиксируем равным K.
     print("K\tM\tN\titer\tparallel_time\tsequence_time", flush=True)
     
     for K in args.N:
         for M in args.k:
             N = K
-            # Используем --extra для T1 T2 RADIUS MAX_ITER
             extra_args = args.extra if args.extra else ["100.0", "0.0", "10", "100"]
             
             par, seq = [], []
             for _ in range(args.runs):
-                cmd = ["stdbuf", "-oL", "bash", "test.sh", str(K), str(M), str(N)] + extra_args
+                cmd = ["bash", "test.sh", str(K), str(M), str(N)] + extra_args
                 ret, out_lines, timed_out = run_dynamic(
                     cmd, {}, cwd, args.timeout_par, args.timeout_seq
                 )
@@ -243,7 +241,7 @@ def main():
     ap.add_argument('-N', type=parse_range, default=[64, 128, 256])
     ap.add_argument('-k', type=parse_range, default=[64, 128, 256]) 
     ap.add_argument('-p', type=parse_range, default=[1, 2, 3, 4, 6])
-    ap.add_argument('--type', nargs='+', default=['iso', 'sparse', 'noniso', 'reg'])
+    ap.add_argument('--type', type=lambda s: s.split(','), default=['iso', 'sparse', 'noniso', 'reg'])
     ap.add_argument('--extra', nargs=argparse.REMAINDER, default=[])
     args = ap.parse_args()
 

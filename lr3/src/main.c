@@ -81,6 +81,8 @@ int main(int argc, char **argv)
     result_t seq_result = {0};
     result_t par_result = {0};
 
+    setbuf(stdout, NULL);
+
     ret = parallel_init(&argc, &argv);
     if (ret != NO_ERR)
     {

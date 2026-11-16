@@ -50,6 +50,7 @@ static u8 use_color = 0;
 
 int main(int argc, char *argv[])
 {
+    setbuf(stdout, NULL);
     use_color = isatty(STDOUT_FILENO);
     uint64_t N = 2;
     size_t k = 0;
